@@ -11,6 +11,7 @@ final class RingPanel: NSPanel {
     let view = RingView(frame: NSRect(x: 0, y: 0, width: RingGeometry.canvas, height: RingGeometry.canvas))
     private let catalog: ApplicationCatalog
     private let windows = WindowService()
+    private let counts = AppCountService()
     private let tabs = BrowserTabService.shared
     private let activator = ApplicationActivator()
     private let previews = PreviewService()
@@ -31,6 +32,7 @@ final class RingPanel: NSPanel {
         super.init()
         view.onClose = { [weak self] in self?.dismiss() }
         view.onSettings = { [weak self] in self?.dismiss(); self?.onSettings?() }
+        view.onVisibleAppsChanged = { [weak self] in self?.refreshCounts() }
         view.onSelectApp = { [weak self] app in
             guard let self else { return }
             let ticket = self.gate.invalidate()
@@ -90,6 +92,14 @@ final class RingPanel: NSPanel {
                          occupied: view.occupiedScreenFrame, screen: screen.visibleFrame, preferredSize: Preferences.shared.options.previewSize)
     }
 
+    private func refreshCounts() {
+        guard isVisible else { return }
+        counts.refresh(apps: view.visibleApps, options: view.options) { [weak self] pid, count in
+            guard let self, self.isVisible else { return }
+            self.view.setItemCount(count, for: pid)
+        }
+    }
+
     func pressShortcut() {
         if Preferences.shared.options.holdToSelect {
             if !isVisible { show() }
@@ -131,6 +141,7 @@ final class RingPanel: NSPanel {
         panel.makeKeyAndOrderFront(nil)
         panel.makeFirstResponder(view)
         view.refresh()
+        refreshCounts()
         // Event monitors exist only while the ring is visible; no global input tap.
         clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] _ in
             DispatchQueue.main.async { self?.dismiss() }
@@ -159,6 +170,7 @@ final class RingPanel: NSPanel {
         view.cancelHover()
         windows.cancelAndClear()
         tabs.cancelAndClear()
+        counts.cancelAndClear()
         previews.cancelAndClear()
         panel?.orderOut(nil)
         if let clickMonitor { NSEvent.removeMonitor(clickMonitor) }; clickMonitor = nil
@@ -187,5 +199,6 @@ final class RingPanel: NSPanel {
         }
         view.appPage = min(view.appPage, RingGeometry.pageCount(total: view.apps.count, size: view.appPageSize) - 1)
         view.refresh()
+        refreshCounts()
     }
 }

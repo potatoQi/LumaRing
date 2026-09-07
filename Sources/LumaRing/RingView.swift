@@ -17,6 +17,9 @@ import LumaRingCore
     var onHoverWindow: ((WindowRecord?) -> Void)?
     var onClose: (() -> Void)?
     var onSettings: (() -> Void)?
+    var onVisibleAppsChanged: (() -> Void)?
+    private(set) var itemCounts: [pid_t: AppItemCount] = [:]
+    private var countsFromSelection: Set<pid_t> = []
     private var hoveredApp: pid_t?
     private var collapseWork: DispatchWorkItem?
     private let diskMaterial = RingMaterial()
@@ -106,6 +109,8 @@ import LumaRingCore
         cancelHover()
         onHoverWindow?(nil)
         self.apps = apps; self.options = options
+        itemCounts.removeAll()
+        countsFromSelection.removeAll()
         windows = []; appPage = 0; windowPage = 0
         selectedApp = nil; hoveredApp = nil; hoveredWindow = nil
         message = apps.isEmpty ? L10n.text("没有可切换的应用", "No apps available") : L10n.text("悬停应用", "Point at an app")
@@ -130,6 +135,9 @@ import LumaRingCore
 
     func setWindows(_ result: WindowResult, for pid: pid_t) {
         guard selectedApp == pid else { return }
+        // A direct hover query takes precedence over a potentially older page-count response.
+        countsFromSelection.insert(pid)
+        itemCounts[pid] = AppItemCount(result, includeMinimized: options.includeMinimized)
         loading = false
         switch result {
         case .ready(let all, let limited):
@@ -141,6 +149,14 @@ import LumaRingCore
             windows = []; message = text
         }
         refresh()
+    }
+
+    func setItemCount(_ count: AppItemCount?, for pid: pid_t) {
+        guard visibleApps.contains(where: { $0.pid == pid }), !countsFromSelection.contains(pid) else { return }
+        guard itemCounts[pid] != count else { return }
+        itemCounts[pid] = count
+        refreshArtwork()
+        rebuildAccessibility()
     }
 
     func refresh() {
@@ -258,10 +274,12 @@ import LumaRingCore
         guard RingGeometry.pageCount(total: apps.count, size: appPageSize) > 1 else { return }
         cancelHover()
         appPage = RingGeometry.wrapped(appPage + direction, count: RingGeometry.pageCount(total: apps.count, size: appPageSize))
+        countsFromSelection.removeAll()
         selectedApp = nil; hoveredApp = nil; windows = []; hoveredWindow = nil
         loading = false
         onHoverWindow?(nil); message = L10n.text("悬停应用", "Point at an app")
         refresh()
+        onVisibleAppsChanged?()
     }
 
     func changeWindowPage(_ direction: Int) {
@@ -287,6 +305,7 @@ import LumaRingCore
     private var dark: Bool { effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua }
 
     private func drawDisk() {
+        var badges: [(String, NSRect)] = []
         for (index, app) in visibleApps.enumerated() {
             let active = app.pid == (hoveredApp ?? selectedApp)
             let p = RingGeometry.point(angle: RingGeometry.angle(index: index, count: visibleApps.count), radius: RingGeometry.appRadius)
@@ -296,9 +315,29 @@ import LumaRingCore
                 let tile = NSBezierPath(roundedRect: NSRect(x: p.x - tileSize / 2, y: p.y - tileSize / 2, width: tileSize, height: tileSize), xRadius: 11, yRadius: 11)
                 NSColor.labelColor.withAlphaComponent(dark ? 0.16 : 0.07).setFill(); tile.fill()
             }
-            app.icon.draw(in: NSRect(x: p.x - size / 2, y: p.y - size / 2, width: size, height: size), from: .zero, operation: .sourceOver, fraction: 1)
+            let iconRect = NSRect(x: p.x - size / 2, y: p.y - size / 2, width: size, height: size)
+            app.icon.draw(in: iconRect, from: .zero, operation: .sourceOver, fraction: 1)
+            if let badge = itemCounts[app.pid]?.badge { badges.append((badge, iconRect)) }
         }
+        // Dense app pages must not let a later icon paint over an earlier badge.
+        for (text, rect) in badges { drawBadge(text, on: rect) }
         drawCenter()
+    }
+
+    private func drawBadge(_ text: String, on icon: NSRect) {
+        let height = min(14, max(10, icon.width * 0.45))
+        let font = NSFont.monospacedDigitSystemFont(ofSize: height * 0.7, weight: .semibold)
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font, .foregroundColor: dark ? NSColor.black : NSColor.white
+        ]
+        let size = (text as NSString).size(withAttributes: attributes)
+        let width = max(height, size.width + 5)
+        let rect = NSRect(x: icon.maxX - width + 3, y: icon.minY - 3, width: width, height: height)
+        let outline = NSBezierPath(roundedRect: rect.insetBy(dx: -1, dy: -1), xRadius: height / 2 + 1, yRadius: height / 2 + 1)
+        (dark ? NSColor.black : NSColor.white).setFill(); outline.fill()
+        let badge = NSBezierPath(roundedRect: rect, xRadius: height / 2, yRadius: height / 2)
+        (dark ? NSColor.white : NSColor.black).setFill(); badge.fill()
+        (text as NSString).draw(at: NSPoint(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2), withAttributes: attributes)
     }
 
     private func drawWindows() {
@@ -363,7 +402,9 @@ import LumaRingCore
         }
         for (i, app) in visibleApps.enumerated() {
             let p = RingGeometry.point(angle: RingGeometry.angle(index: i, count: visibleApps.count), radius: RingGeometry.appRadius)
-            add(app.name, help: L10n.text("有多个\(secondaryName)时展开圆弧；松开呼出快捷键或点击即可切换。", "Show available windows or tabs. Click or release the invocation shortcut to switch."), rect: NSRect(x: p.x - 24, y: p.y - 24, width: 48, height: 48)) { [weak self] in self?.select(app) }
+            let mode = options.contentMode(for: app.bundleID).title
+            let label = itemCounts[app.pid]?.badge.map { "\(app.name), \($0) \(mode)" } ?? app.name
+            add(label, help: L10n.text("有多个\(mode)时展开圆弧；松开呼出快捷键或点击即可切换。", "Show available windows or tabs. Click or release the invocation shortcut to switch."), rect: NSRect(x: p.x - 24, y: p.y - 24, width: 48, height: 48)) { [weak self] in self?.select(app) }
         }
         for (i, win) in visibleWindows.enumerated() {
             let p = windowPoint(i)
