@@ -3,14 +3,8 @@ set -euo pipefail
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$PROJECT_DIR"
 VERSION="$(python3 scripts/configure_bundle.py --print-version)"
-BUILD_MODE="${LUMARING_BUILD_MODE:-development}"
+# Ad-hoc signing works without an Apple account. Developer ID is optional.
 SIGN_IDENTITY="${LUMARING_SIGN_IDENTITY:--}"
-if [[ "$BUILD_MODE" != development && "$BUILD_MODE" != distribution ]]; then
-  echo 'LUMARING_BUILD_MODE must be development or distribution.' >&2; exit 1
-fi
-if [[ "$BUILD_MODE" == distribution && "$SIGN_IDENTITY" != 'Developer ID Application:'* ]]; then
-  echo 'Distribution requires an explicit Developer ID Application signing identity.' >&2; exit 1
-fi
 SWIFT_ARCH_ARGS=()
 if [ "${LUMARING_UNIVERSAL:-1}" = "1" ]; then SWIFT_ARCH_ARGS=(--arch arm64 --arch x86_64); fi
 swift build --disable-keychain --disable-netrc -c release "${SWIFT_ARCH_ARGS[@]}"
@@ -29,7 +23,7 @@ ditto "$SPARKLE_DIR/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework" "$
 cp "$PROJECT_DIR/THIRD_PARTY_NOTICES.md" "$APP_DIR/Contents/Resources/THIRD_PARTY_NOTICES.md"
 # Sign nested code from the inside out; ditto preserves the framework's symlinks.
 SIGN_OPTIONS=(--force --sign "$SIGN_IDENTITY")
-if [[ "$BUILD_MODE" == distribution ]]; then SIGN_OPTIONS+=(--options runtime --timestamp); fi
+if [[ "$SIGN_IDENTITY" == 'Developer ID Application:'* ]]; then SIGN_OPTIONS+=(--options runtime --timestamp); fi
 codesign "${SIGN_OPTIONS[@]}" --preserve-metadata=entitlements "$FRAMEWORK/Versions/B/XPCServices/Downloader.xpc"
 codesign "${SIGN_OPTIONS[@]}" --preserve-metadata=entitlements "$FRAMEWORK/Versions/B/XPCServices/Installer.xpc"
 codesign "${SIGN_OPTIONS[@]}" "$FRAMEWORK/Versions/B/Autoupdate"
@@ -41,4 +35,4 @@ codesign --verify --deep --strict "$APP_DIR"
 if [ -d "$PROJECT_DIR/dist/LumaRing.app" ]; then mv "$PROJECT_DIR/dist/LumaRing.app" "$STAGING_DIR/previous.app"; fi
 mv "$APP_DIR" "$PROJECT_DIR/dist/LumaRing.app"
 ditto -c -k --sequesterRsrc --keepParent "$PROJECT_DIR/dist/LumaRing.app" "$PROJECT_DIR/dist/LumaRing-$VERSION-macOS.zip"
-echo "Built $VERSION ($BUILD_MODE): $PROJECT_DIR/dist/LumaRing.app"
+echo "Built $VERSION (local package): $PROJECT_DIR/dist/LumaRing.app"

@@ -104,13 +104,6 @@ class ReleaseTests(unittest.TestCase):
         result = subprocess.run([sys.executable, str(ROOT / 'scripts/configure_bundle.py'), '--verify-tag', 'v999.0.0'], capture_output=True)
         self.assertNotEqual(result.returncode, 0)
 
-    def test_distribution_cannot_fall_back_to_ad_hoc(self):
-        import os
-        env = dict(os.environ, LUMARING_BUILD_MODE='distribution', LUMARING_SIGN_IDENTITY='-')
-        result = subprocess.run(['bash', 'scripts/build.sh'], cwd=ROOT, env=env, capture_output=True, text=True)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn('Developer ID Application', result.stderr)
-
     def test_update_policy_and_staged_version(self):
         info = configure(self.root / 'staged.plist', self.root)
         self.assertEqual(info['CFBundleVersion'], '0.1.0')

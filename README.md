@@ -61,15 +61,15 @@
 - macOS 14 或更高版本。安装包包含 Apple Silicon / Intel；实机测试使用 Apple Silicon。
 - 使用公开辅助功能及 ScreenCaptureKit API。跨 Space / 全屏行为受 macOS 和目标应用限制。
 - 标签页模式仅适配 Edge / Chrome；浮动工具面板与系统对话框不会列入普通窗口列表。
-- 默认开发构建使用本地 ad-hoc 签名，没有 Apple 公证。正式分发构建使用 Developer ID 和公证流程。更新签名后，macOS 可能要求在系统设置中重新添加辅助功能及屏幕录制记录，并由本人进行触控 ID / 密码验证。
+- 安装包使用本地 ad-hoc 签名，没有 Apple 公证。首次打开可能需要在系统设置的“隐私与安全性”中允许运行；更新后 macOS 可能要求重新添加辅助功能及屏幕录制授权。
 
 ## 版本与更新
 
-当前正式版本为 **v0.1.0**。版本只由项目所有者决定，`VERSION` 是唯一来源，日常编译和提交不会自动升版本。
+当前计划发布的版本为 **v0.1.0**。版本只由项目所有者决定，`VERSION` 是唯一来源，日常编译和提交不会自动升版本。
 
 默认每天检查 GitHub 的新正式版本，支持安装更新、跳过此版本和稍后提醒。菜单与设置均有“检查更新…”入口，也可以关闭自动检查。安装必须由用户选择，不会静默更新。
 
-完整的证书、更新密钥、GitHub Release 草稿流程见 [发布指南](docs/RELEASING.md)。首次正式发布仍需完成 Developer ID 和公证配置；当前本地开发构建不是公证后的公开安装包。
+采用本地打包并签署更新文件、手动上传 GitHub Release 的方式，不要求 Apple 发布证书、公证或 GitHub Secrets。运行 `bash scripts/prepare-release.sh` 仅生成本地发布文件，不上传或发布。详细步骤见 [发布指南](docs/RELEASING.md)。
 
 ## 开发与验证
 
@@ -97,7 +97,7 @@ bash scripts/install.sh
 
 真实窗口测试需要测试进程已有辅助功能权限；图片测试需要其已有录屏权限。普通 `swift test` 会跳过两项系统集成测试。重新启动测试窗口应用可恢复初始最小化状态。
 
-如有可用的 Developer ID Application 证书，可通过 `LUMARING_SIGN_IDENTITY` 指定；公开分发仍需签名、公证和跨系统验证。不要关闭 Gatekeeper 或 SIP。
+如以后有可用的 Developer ID Application 证书，可通过 `LUMARING_SIGN_IDENTITY` 指定，这是可选项；当前发布流程使用免费的本地签名和 Sparkle 更新签名。
 
 ## 卸载
 

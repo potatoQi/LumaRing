@@ -14,7 +14,7 @@ jobs:
         run: swift test --disable-keychain --disable-netrc
       - name: Release policy and signature tests
         run: python3 -m unittest discover -s Tests/ReleaseTools -v
-      - name: Build universal development bundle
+      - name: Build universal local bundle
         run: bash scripts/build.sh
       - name: Validate bundle and version
         run: |
