@@ -19,7 +19,6 @@ final class RingPanel: NSPanel {
     private var panel: RingPanel?
     private var clickMonitor: Any?
     private var localClickMonitor: Any?
-    private var previewDelay: DispatchWorkItem?
     private var gate = RequestGate()
     private let logger = Logger(subsystem: "local.lumaring.app", category: "performance")
     var onSettings: (() -> Void)?
@@ -49,7 +48,7 @@ final class RingPanel: NSPanel {
             guard let self else { return }
             self.dismiss()
             self.activator.activate(pid: app.pid) { [weak self] success in
-                if !success { self?.onError?("未能打开这个应用。它可能已退出，请重新呼出轮盘再试。") }
+                if !success { self?.onError?(L10n.text("未能打开这个应用。它可能已退出，请重新呼出轮盘再试。", "Could not open this app. It may have quit. Reopen the ring and try again.")) }
             }
         }
         view.onActivateWindow = { [weak self] window in
@@ -63,35 +62,30 @@ final class RingPanel: NSPanel {
                 return
             }
             self.windows.activate(window, allowAppFallback: allowAppFallback) { [weak self] success in
-                if !success { self?.onError?("未能置前这个窗口。它可能已经关闭，或位于受系统限制的全屏桌面。") }
+                if !success { self?.onError?(L10n.text("未能置前这个窗口。它可能已经关闭，或位于受系统限制的全屏桌面。", "Could not bring this window forward. It may be closed or on a restricted full-screen desktop.")) }
             }
         }
         view.onHoverWindow = { [weak self] window in
             guard let self else { return }
-            self.previewDelay?.cancel()
             self.previews.cancelPending()
             self.previewCard.dismiss()
-            guard let window, Preferences.shared.options.previews else { return }
-            let work = DispatchWorkItem { [weak self] in
+            guard let window, Preferences.shared.options.previews,
+                  self.isVisible, self.view.hoveredWindow == window.id else { return }
+            self.presentPreview(window, image: nil)
+            guard window.tab == nil else { return }
+            self.previews.load(window, pixelSize: self.previewCard.capturePixelSize) { [weak self] result in
                 guard let self, self.isVisible, self.view.hoveredWindow == window.id else { return }
-                self.presentPreview(window, image: nil)
-                guard window.tab == nil else { return }
-                self.previews.load(window, pixelSize: self.previewCard.capturePixelSize) { [weak self] result in
-                    guard let self, self.isVisible, self.view.hoveredWindow == window.id else { return }
-                    switch result {
-                    case .success(let image): self.presentPreview(window, image: image)
-                    case .failure(let failure): self.presentPreview(window, image: nil, failure: failure)
-                    }
+                switch result {
+                case .success(let image): self.presentPreview(window, image: image)
+                case .failure(let failure): self.presentPreview(window, image: nil, failure: failure)
                 }
             }
-            self.previewDelay = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.28, execute: work)
         }
     }
 
     private func presentPreview(_ record: WindowRecord, image: NSImage?, failure: PreviewFailure? = nil) {
         guard let anchor = view.windowScreenFrame(record.id), let screen = panel?.screen else { return }
-        let message = record.tab.map { "\($0.url)\n\n点击切换到此标签页 · 后台标签页不提供图片预览" } ?? failure?.message ?? (record.minimized ? PreviewFailure.minimized.message : "正在载入预览…")
+        let message = record.tab.map { L10n.text("\($0.url)\n\n点击切换到此标签页 · 后台标签页不提供图片预览", "\($0.url)\n\nClick to switch to this tab. Background tabs have no image preview.") } ?? failure?.message ?? (record.minimized ? PreviewFailure.minimized.message : L10n.text("正在载入预览…", "Loading preview…"))
         previewCard.show(window: record, image: image, message: message, anchor: anchor,
                          occupied: view.occupiedScreenFrame, screen: screen.visibleFrame, preferredSize: Preferences.shared.options.previewSize)
     }
@@ -162,7 +156,6 @@ final class RingPanel: NSPanel {
         gate.invalidate()
         openedByShortcut = false
         previewCard.dismiss()
-        previewDelay?.cancel(); previewDelay = nil
         view.cancelHover()
         windows.cancelAndClear()
         tabs.cancelAndClear()
@@ -190,7 +183,7 @@ final class RingPanel: NSPanel {
         if let selected = view.selectedApp, !live.contains(selected) {
             gate.invalidate(); windows.cancelAndClear()
             view.clearSelection()
-            view.message = "应用已退出 · 请选择其他应用"
+            view.message = L10n.text("应用已退出 · 请选择其他应用", "App closed · Choose another app")
         }
         view.appPage = min(view.appPage, RingGeometry.pageCount(total: view.apps.count, size: view.appPageSize) - 1)
         view.refresh()

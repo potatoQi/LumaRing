@@ -12,7 +12,8 @@ public struct RingGeometry {
     public static let windowOuter: Double = 198
     public static let windowRadius: Double = 158
     public static let pageSize = 8
-    public static let windowPageSize = 4
+    public static let windowPageSize = 6
+    public static let windowPageSizeRange = 2...8
     public static let arcStep: Double = 32 * .pi / 180
 
     public static func arcAngle(index: Int, count: Int, anchor: Double) -> Double {

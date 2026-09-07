@@ -28,18 +28,19 @@ final class RingStateTests: XCTestCase {
     func testNewDefaultsAndLegacySettingsDecode() throws {
         let defaults = Options()
         XCTAssertFalse(defaults.holdToSelect)
-        XCTAssertEqual(defaults.hoverDelay, 0.08)
         XCTAssertEqual(defaults.ringSize, 520)
         XCTAssertEqual(defaults.shortcut.display, "⌥Tab")
         XCTAssertEqual(defaults.previewSize, CGSize(width: 840, height: 630))
         XCTAssertTrue(defaults.sortByName)
         XCTAssertEqual(defaults.appPageSize, 12)
-        let legacy = Data(#"{"shortcut":{"keyCode":15,"modifiers":6144,"label":"R"},"ringSize":500,"showAppNames":true,"reduceMotion":true,"excludedBundleIDs":["local.hidden"]}"#.utf8)
+        XCTAssertEqual(defaults.windowPageSize, 6)
+        let legacy = Data(#"{"shortcut":{"keyCode":15,"modifiers":6144,"label":"R"},"hoverDelay":0.5,"ringSize":500,"showAppNames":true,"reduceMotion":true,"excludedBundleIDs":["local.hidden"]}"#.utf8)
         let decoded = try JSONDecoder().decode(Options.self, from: legacy)
         XCTAssertEqual(decoded.shortcut.keyCode, 15)
         XCTAssertEqual(decoded.ringSize, 500)
         XCTAssertEqual(decoded.excludedBundleIDs, ["local.hidden"])
         XCTAssertEqual(decoded.appPageSize, 12)
+        XCTAssertEqual(decoded.windowPageSize, 6)
         XCTAssertEqual(decoded.previewWidth, 840)
         let enlarged = try JSONDecoder().decode(Options.self, from: Data(#"{"previewWidth":960}"#.utf8))
         XCTAssertEqual(enlarged.previewSize, CGSize(width: 960, height: 720))
@@ -47,6 +48,7 @@ final class RingStateTests: XCTestCase {
         XCTAssertEqual(clamped.previewWidth, 960)
         let encoded = String(decoding: try JSONEncoder().encode(decoded), as: UTF8.self)
         XCTAssertFalse(encoded.contains("showAppNames")); XCTAssertFalse(encoded.contains("reduceMotion"))
+        XCTAssertFalse(encoded.contains("hoverDelay"))
     }
 
     @MainActor func testShortcutRecorderAccessiblePressAndCancel() async {
@@ -94,10 +96,51 @@ final class RingStateTests: XCTestCase {
         }
     }
 
+    func testWindowPageSizePersistsAndClampsInvalidValues() throws {
+        for size in RingGeometry.windowPageSizeRange {
+            var options = Options(); options.windowPageSize = size
+            let decoded = try JSONDecoder().decode(Options.self, from: JSONEncoder().encode(options))
+            XCTAssertEqual(decoded.windowPageSize, size)
+        }
+        for (stored, expected) in [(-10, 2), (0, 2), (999, 8)] {
+            let decoded = try JSONDecoder().decode(Options.self, from: Data("{\"windowPageSize\":\(stored)}".utf8))
+            XCTAssertEqual(decoded.windowPageSize, expected)
+        }
+    }
+
+    @MainActor func testConfigurableWindowPagesPreserveTargetsAndWrap() async {
+        let view = RingView()
+        let applications = apps(1)
+        let records = windows(19)
+        for size in RingGeometry.windowPageSizeRange {
+            var options = Options(); options.windowPageSize = size
+            view.reset(apps: applications, options: options)
+            view.select(applications[0]); view.setWindows(.ready(records), for: 100)
+            var seen: [String] = []
+            for _ in 0..<RingGeometry.pageCount(total: records.count, size: size) {
+                let visible = view.visibleWindows
+                XCTAssertLessThanOrEqual(visible.count, size)
+                seen += visible.map(\.id)
+                var activated: String?
+                view.onActivateWindow = { activated = $0.id }
+                view.updateHover(at: windowPoint(visible.count - 1, count: visible.count))
+                view.activateHovered()
+                XCTAssertEqual(activated, visible.last?.id)
+                view.changeWindowPage(1)
+                XCTAssertNil(view.hoveredWindow)
+            }
+            XCTAssertEqual(seen, records.map(\.id))
+            XCTAssertEqual(view.windowPage, 0)
+            view.changeWindowPage(-1)
+            XCTAssertEqual(view.visibleWindows.last?.id, records.last?.id)
+        }
+    }
+
     @MainActor func testMouseWindowPagingAndReleaseActivatesExactTarget() async {
         let view = RingView()
         let applications = apps(8)
-        view.reset(apps: applications, options: Options())
+        var options = Options(); options.windowPageSize = 4
+        view.reset(apps: applications, options: options)
         view.select(applications[0]); view.setWindows(.ready(windows(10)), for: 100)
         view.changeWindowPage(1); view.changeWindowPage(1)
         XCTAssertEqual(view.visibleWindows.count, 2)
@@ -180,7 +223,7 @@ final class RingStateTests: XCTestCase {
         let applications = apps(1)
         view.reset(apps: applications, options: Options())
         view.select(applications[0]); view.setWindows(.ready(windows(10)), for: 100)
-        view.updateHover(at: windowPoint(0, count: 4))
+        view.updateHover(at: windowPoint(0, count: view.visibleWindows.count))
         var cleared = false
         view.onHoverWindow = { if $0 == nil { cleared = true } }
         view.reset(apps: [], options: Options())
@@ -201,19 +244,20 @@ final class RingStateTests: XCTestCase {
         XCTAssertEqual(target, "window-0")
     }
 
-    @MainActor func testHoverDelayAttachedArcAndCollapse() async {
+    @MainActor func testImmediateHoverAttachedArcAndCollapse() async {
         let view = RingView()
-        var options = Options(); options.hoverDelay = 0.08
-        view.reset(apps: apps(8), options: options)
-        let loaded = expectation(description: "hover loads selected app")
+        view.reset(apps: apps(8), options: Options())
+        var queries = 0
         view.onSelectApp = { [weak view] app in
+            queries += 1
             view?.setWindows(.ready(self.windows(3, pid: app.pid)), for: app.pid)
-            loaded.fulfill()
         }
         view.updateHover(at: appPoint(0, count: 8))
-        XCTAssertNil(view.selectedApp)
-        await fulfillment(of: [loaded], timeout: 1)
+        XCTAssertEqual(view.selectedApp, 100)
+        XCTAssertEqual(queries, 1)
         XCTAssertTrue(view.showsWindowArc)
+        view.updateHover(at: appPoint(0, count: 8))
+        XCTAssertEqual(queries, 1, "Moving within the same app must not repeat the query")
         view.updateHover(at: RingGeometry.point(angle: .pi / 2, radius: 119))
         try? await Task.sleep(nanoseconds: 240_000_000)
         XCTAssertTrue(view.showsWindowArc)

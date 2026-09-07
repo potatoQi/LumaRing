@@ -5,7 +5,7 @@ import LumaRingCore
 
 enum AppContentMode: String, Codable {
     case windows, tabs
-    var title: String { self == .tabs ? "标签页" : "窗口" }
+    var title: String { self == .tabs ? L10n.text("标签页", "Tabs") : L10n.text("窗口", "Windows") }
 }
 
 enum BrowserAdapters {
@@ -28,11 +28,11 @@ enum BrowserError: LocalizedError {
     case permission, closed, malformed, timeout, event(Int32, String = "")
     var errorDescription: String? {
         switch self {
-        case .permission: return "请在“应用管理”中连接浏览器；若曾拒绝，请在系统设置的“自动化”中允许。"
-        case .closed: return "标签页已关闭或正在移动，请重新呼出后再试。"
-        case .malformed: return "浏览器返回的数据无法识别，请更新浏览器后重试。"
-        case .timeout: return "浏览器响应较慢，请稍后重新呼出。"
-        case .event(let code, let step): return "无法读取或切换标签页（\(code) \(step)），请重新连接浏览器。"
+        case .permission: return L10n.text("请在“应用管理”中连接浏览器；若曾拒绝，请在系统设置的“自动化”中允许。", "Connect the browser in App Management. If access was denied, allow it under Automation in System Settings.")
+        case .closed: return L10n.text("标签页已关闭或正在移动，请重新呼出后再试。", "This tab was closed or is moving. Reopen the ring and try again.")
+        case .malformed: return L10n.text("浏览器返回的数据无法识别，请更新浏览器后重试。", "The browser returned unrecognized data. Update the browser and try again.")
+        case .timeout: return L10n.text("浏览器响应较慢，请稍后重新呼出。", "The browser is responding slowly. Reopen the ring in a moment.")
+        case .event(let code, let step): return L10n.text("无法读取或切换标签页（\(code) \(step)），请重新连接浏览器。", "Could not read or switch tabs (\(code) \(step)). Reconnect the browser.")
         }
     }
 }
@@ -124,7 +124,7 @@ final class BrowserEvents {
             for index in 0..<min(ids.count, max(0, 512 - tabs.count)) {
                 let title = titles[index], url = urls[index]
                 tabs.append(BrowserTab(bundleID: bundleID, windowID: windowID, id: ids[index],
-                                       title: title.isEmpty ? (url.isEmpty ? "未命名标签页" : url) : title,
+                                       title: title.isEmpty ? (url.isEmpty ? L10n.text("未命名标签页", "Untitled tab") : url) : title,
                                        url: url, windowIndex: offset + 1, index: index + 1, minimized: minimized))
             }
             if tabs.count >= 512 { limited = true; break }
@@ -157,6 +157,12 @@ final class BrowserEvents {
     private let authorizationQueue = DispatchQueue(label: "local.lumaring.browser-authorization", qos: .userInitiated)
     private var work: CancellationFlag?
 
+    func refreshLanguage() {
+        messages.removeAll()
+        for id in connected { messages[id] = L10n.text("已授权", "Access granted") }
+        for id in connecting { messages[id] = L10n.text("等待浏览器授权…", "Waiting for browser access…") }
+    }
+
     func refreshAuthorization(_ apps: [NSRunningApplication]) {
         let targets = apps.compactMap { app -> (String, pid_t)? in
             guard let id = app.bundleIdentifier, BrowserAdapters.supports(id),
@@ -170,10 +176,10 @@ final class BrowserEvents {
                 for (id, granted) in statuses where !self.connecting.contains(id) {
                     if granted {
                         self.connected.insert(id)
-                        if self.messages[id] == nil { self.messages[id] = "已授权" }
+                        if self.messages[id] == nil { self.messages[id] = L10n.text("已授权", "Access granted") }
                     } else {
                         self.connected.remove(id)
-                        self.messages[id] = "尚未授权，请连接浏览器。"
+                        self.messages[id] = L10n.text("尚未授权，请连接浏览器。", "Access not granted. Connect the browser.")
                     }
                 }
             }
@@ -184,7 +190,7 @@ final class BrowserEvents {
         guard let identifier = app.bundleIdentifier, BrowserAdapters.supports(identifier), !connecting.contains(identifier) else { return }
         let pid = app.processIdentifier
         connecting.insert(identifier)
-        messages[identifier] = "等待浏览器授权…"
+        messages[identifier] = L10n.text("等待浏览器授权…", "Waiting for browser access…")
         authorizationQueue.async { [weak self] in
             let status = BrowserEvents.permission(pid: pid, ask: true)
             let result: Result<Int, Error> = Result {
@@ -197,7 +203,7 @@ final class BrowserEvents {
                 switch result {
                 case .success(let count):
                     self.connected.insert(identifier)
-                    self.messages[identifier] = "已连接 · \(count) 个标签页"
+                    self.messages[identifier] = L10n.text("已连接 · \(count) 个标签页", "Connected · \(count) tabs")
                 case .failure(let error):
                     self.connected.remove(identifier)
                     self.messages[identifier] = error.localizedDescription

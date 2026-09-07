@@ -8,7 +8,7 @@ import LumaRingCore
     var windowPage = 0
     var selectedApp: pid_t?
     var hoveredWindow: String?
-    var message = "悬停应用"
+    var message = L10n.text("悬停应用", "Point at an app")
     var loading = false
     var options = Options()
     var onSelectApp: ((AppRecord) -> Void)?
@@ -17,8 +17,6 @@ import LumaRingCore
     var onHoverWindow: ((WindowRecord?) -> Void)?
     var onClose: (() -> Void)?
     var onSettings: (() -> Void)?
-    private var hoverWork: DispatchWorkItem?
-    private var pendingApp: pid_t?
     private var hoveredApp: pid_t?
     private var collapseWork: DispatchWorkItem?
     private let diskMaterial = RingMaterial()
@@ -70,10 +68,13 @@ import LumaRingCore
         return window.convertToScreen(convert(NSRect(x: p.x - 35, y: p.y - 29, width: 70, height: 58), to: nil))
     }
     var appPageSize: Int { min(24, max(4, options.appPageSize)) }
+    var windowPageSize: Int {
+        min(RingGeometry.windowPageSizeRange.upperBound, max(RingGeometry.windowPageSizeRange.lowerBound, options.windowPageSize))
+    }
     var appIconSize: Double { min(34, 2 * RingGeometry.appRadius * sin(.pi / Double(max(visibleApps.count, 2))) * 0.76) }
     private var arcPath: CGPath { RingGeometry.arcPath(count: visibleWindows.count, anchor: arcAnchor) }
     private var appPages: Int { RingGeometry.pageCount(total: apps.count, size: appPageSize) }
-    private var windowPages: Int { RingGeometry.pageCount(total: windows.count, size: RingGeometry.windowPageSize) }
+    private var windowPages: Int { RingGeometry.pageCount(total: windows.count, size: windowPageSize) }
     private func windowPoint(_ index: Int) -> CGPoint {
         RingGeometry.point(angle: RingGeometry.arcAngle(index: index, count: visibleWindows.count, anchor: arcAnchor), radius: RingGeometry.windowRadius)
     }
@@ -95,7 +96,7 @@ import LumaRingCore
     }
     var visibleWindows: [WindowRecord] {
         guard showsWindowArc else { return [] }
-        return Array(windows[RingGeometry.pageRange(page: windowPage, total: windows.count, size: RingGeometry.windowPageSize)])
+        return Array(windows[RingGeometry.pageRange(page: windowPage, total: windows.count, size: windowPageSize)])
     }
     var secondaryName: String { options.contentMode(for: currentApp?.bundleID ?? "").title }
     var currentApp: AppRecord? { apps.first { $0.pid == selectedApp } }
@@ -107,13 +108,12 @@ import LumaRingCore
         self.apps = apps; self.options = options
         windows = []; appPage = 0; windowPage = 0
         selectedApp = nil; hoveredApp = nil; hoveredWindow = nil
-        message = apps.isEmpty ? "没有可切换的应用" : "悬停应用"
+        message = apps.isEmpty ? L10n.text("没有可切换的应用", "No apps available") : L10n.text("悬停应用", "Point at an app")
         loading = false
         refresh()
     }
 
     func cancelHover() {
-        hoverWork?.cancel(); hoverWork = nil; pendingApp = nil
         collapseWork?.cancel(); collapseWork = nil
     }
 
@@ -134,9 +134,9 @@ import LumaRingCore
         switch result {
         case .ready(let all, let limited):
             windows = all.filter { options.includeMinimized || !$0.minimized }
-            message = limited ? "已载入 \(windows.count) 个\(secondaryName) · 应用响应较慢，请重新呼出刷新" : (windows.count > 1 ? "\(windows.count) 个\(secondaryName)" : "点击切换")
+            message = limited ? L10n.text("已载入 \(windows.count) 个\(secondaryName) · 应用响应较慢，请重新呼出刷新", "Loaded \(windows.count) \(secondaryName.lowercased()) · Reopen to refresh") : (windows.count > 1 ? L10n.text("\(windows.count) 个\(secondaryName)", "\(windows.count) \(secondaryName.lowercased())") : L10n.text("点击切换", "Click to switch"))
         case .permissionRequired:
-            windows = []; message = "点击中心授权"
+            windows = []; message = L10n.text("点击中心授权", "Click center for access")
         case .unavailable(let text):
             windows = []; message = text
         }
@@ -173,15 +173,8 @@ import LumaRingCore
             let app = visibleApps[index]
             if hoveredApp != app.pid { hoveredApp = app.pid; refreshArtwork() }
             if hoveredWindow != nil { setHoveredWindow(nil) }
-            if selectedApp != app.pid, pendingApp != app.pid {
-                cancelHover(); pendingApp = app.pid
-                let work = DispatchWorkItem { [weak self] in self?.select(app) }
-                hoverWork = work
-                DispatchQueue.main.asyncAfter(deadline: .now() + options.hoverDelay, execute: work)
-            }
-            if selectedApp == app.pid { cancelHover() }
+            if selectedApp != app.pid { select(app) }
         } else {
-            hoverWork?.cancel(); hoverWork = nil; pendingApp = nil
             if let index = windowIndex(at: p) {
                 collapseWork?.cancel(); collapseWork = nil
                 setHoveredWindow(visibleWindows[index])
@@ -209,7 +202,7 @@ import LumaRingCore
     func clearSelection() {
         cancelHover()
         selectedApp = nil; hoveredApp = nil; windows = []; hoveredWindow = nil
-        loading = false; message = "悬停应用"
+        loading = false; message = L10n.text("悬停应用", "Point at an app")
         onHoverWindow?(nil)
         refresh()
     }
@@ -267,7 +260,7 @@ import LumaRingCore
         appPage = RingGeometry.wrapped(appPage + direction, count: RingGeometry.pageCount(total: apps.count, size: appPageSize))
         selectedApp = nil; hoveredApp = nil; windows = []; hoveredWindow = nil
         loading = false
-        onHoverWindow?(nil); message = "悬停应用"
+        onHoverWindow?(nil); message = L10n.text("悬停应用", "Point at an app")
         refresh()
     }
 
@@ -330,14 +323,14 @@ import LumaRingCore
     private func drawCenter() {
         let c = RingGeometry.center
         let app = apps.first { $0.pid == hoveredApp } ?? currentApp
-        let name = app?.name ?? (apps.isEmpty ? "暂无应用" : "应用")
+        let name = app?.name ?? (apps.isEmpty ? L10n.text("暂无应用", "No apps") : L10n.text("应用", "Apps"))
         drawText(name, rect: NSRect(x: c.x - 49, y: c.y + 2, width: 98, height: 28), font: .systemFont(ofSize: 12, weight: .medium), color: ink, lines: 2)
-        let subtitle = loading ? "" : (app == nil ? "悬停选择" : message)
+        let subtitle = loading ? "" : (app == nil ? L10n.text("悬停选择", "Point to select") : message)
         drawText(subtitle, rect: NSRect(x: c.x - 50, y: c.y - 18, width: 100, height: 24), font: .systemFont(ofSize: 9), color: muted, lines: 2)
         if (showsWindowArc && windowPages > 1) || appPages > 1 {
             drawSymbol("chevron.left", rect: NSRect(x: c.x - 40, y: c.y - 39, width: 6, height: 9), color: muted)
             drawSymbol("chevron.right", rect: NSRect(x: c.x + 34, y: c.y - 39, width: 6, height: 9), color: muted)
-            let page = showsWindowArc && windowPages > 1 ? "\(secondaryName) \(windowPage + 1)/\(windowPages)" : "应用 \(appPage + 1)/\(appPages)"
+            let page = showsWindowArc && windowPages > 1 ? "\(secondaryName) \(windowPage + 1)/\(windowPages)" : L10n.text("应用 \(appPage + 1)/\(appPages)", "Apps \(appPage + 1)/\(appPages)")
             drawText(page, rect: NSRect(x: c.x - 30, y: c.y - 41, width: 60, height: 13), font: .systemFont(ofSize: 8), color: muted)
         }
     }
@@ -370,21 +363,21 @@ import LumaRingCore
         }
         for (i, app) in visibleApps.enumerated() {
             let p = RingGeometry.point(angle: RingGeometry.angle(index: i, count: visibleApps.count), radius: RingGeometry.appRadius)
-            add(app.name, help: "有多个\(secondaryName)时展开圆弧；松开呼出快捷键或点击即可切换。", rect: NSRect(x: p.x - 24, y: p.y - 24, width: 48, height: 48)) { [weak self] in self?.select(app) }
+            add(app.name, help: L10n.text("有多个\(secondaryName)时展开圆弧；松开呼出快捷键或点击即可切换。", "Show available windows or tabs. Click or release the invocation shortcut to switch."), rect: NSRect(x: p.x - 24, y: p.y - 24, width: 48, height: 48)) { [weak self] in self?.select(app) }
         }
         for (i, win) in visibleWindows.enumerated() {
             let p = windowPoint(i)
-            add(win.title + (win.minimized ? "，已最小化" : ""), help: "切换到此\(secondaryName)", rect: NSRect(x: p.x - 35, y: p.y - 29, width: 70, height: 58)) { [weak self] in self?.onActivateWindow?(win) }
+            add(win.title + (win.minimized ? L10n.text("，已最小化", ", minimized") : ""), help: L10n.text("切换到此\(secondaryName)", "Switch to this item"), rect: NSRect(x: p.x - 35, y: p.y - 29, width: 70, height: 58)) { [weak self] in self?.onActivateWindow?(win) }
         }
         let c = RingGeometry.center
         if showsWindowArc && windowPages > 1 {
-            add("上一页\(secondaryName)", help: "圆弧滚动翻页", rect: NSRect(x: c.x - 48, y: c.y - 47, width: 46, height: 24)) { [weak self] in self?.changeWindowPage(-1) }
-            add("下一页\(secondaryName)", help: "圆弧滚动翻页", rect: NSRect(x: c.x + 2, y: c.y - 47, width: 46, height: 24)) { [weak self] in self?.changeWindowPage(1) }
+            add(L10n.text("上一页\(secondaryName)", "Previous \(secondaryName.lowercased())"), help: L10n.text("圆弧滚动翻页", "Scroll over the arc to change pages"), rect: NSRect(x: c.x - 48, y: c.y - 47, width: 46, height: 24)) { [weak self] in self?.changeWindowPage(-1) }
+            add(L10n.text("下一页\(secondaryName)", "Next \(secondaryName.lowercased())"), help: L10n.text("圆弧滚动翻页", "Scroll over the arc to change pages"), rect: NSRect(x: c.x + 2, y: c.y - 47, width: 46, height: 24)) { [weak self] in self?.changeWindowPage(1) }
         } else if appPages > 1 {
-            add("上一页应用", help: "滚动或点击翻页", rect: NSRect(x: c.x - 48, y: c.y - 47, width: 46, height: 24)) { [weak self] in self?.changeAppPage(-1) }
-            add("下一页应用", help: "滚动或点击翻页", rect: NSRect(x: c.x + 2, y: c.y - 47, width: 46, height: 24)) { [weak self] in self?.changeAppPage(1) }
+            add(L10n.text("上一页应用", "Previous apps"), help: L10n.text("滚动或点击翻页", "Scroll or click to change pages"), rect: NSRect(x: c.x - 48, y: c.y - 47, width: 46, height: 24)) { [weak self] in self?.changeAppPage(-1) }
+            add(L10n.text("下一页应用", "Next apps"), help: L10n.text("滚动或点击翻页", "Scroll or click to change pages"), rect: NSRect(x: c.x + 2, y: c.y - 47, width: 46, height: 24)) { [weak self] in self?.changeAppPage(1) }
         }
-        add("设置", help: "右键圆盘打开设置", rect: NSRect(x: c.x - 35, y: c.y - 16, width: 70, height: 42)) { [weak self] in self?.onSettings?() }
+        add(L10n.text("设置", "Settings"), help: L10n.text("右键圆盘打开设置", "Right-click the ring to open settings"), rect: NSRect(x: c.x - 35, y: c.y - 16, width: 70, height: 42)) { [weak self] in self?.onSettings?() }
         setAccessibilityElement(false)
         setAccessibilityChildren(items)
     }

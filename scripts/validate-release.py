@@ -14,6 +14,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from configure_bundle import ROOT, read_version, update_configuration
+from check_dmg import validate as validate_dmg
 
 SPARKLE = 'http://www.andymatuschak.org/xml-namespaces/sparkle'
 
@@ -58,6 +59,7 @@ def validate(assets, root=ROOT, check_bundle=False):
             subprocess.run(['ditto', '-x', '-k', str(archive), folder], check=True)
             extracted = str(Path(folder) / 'LumaRing.app')
             subprocess.run(['codesign', '--verify', '--deep', '--strict', extracted], check=True)
+            validate_dmg(assets / f'LumaRing-{version}-macOS.dmg', Path(extracted))
     return {'version': version, 'archiveSHA256': hashlib.sha256(archive.read_bytes()).hexdigest()}
 
 

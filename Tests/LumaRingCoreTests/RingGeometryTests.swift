@@ -6,7 +6,7 @@ final class RingGeometryTests: XCTestCase {
     func testWindowArcFollowsEveryAppAndNeverWrapsIntoFullRing() {
         for app in 0..<8 {
             let anchor = RingGeometry.angle(index: app, count: 8)
-            for count in 1...RingGeometry.windowPageSize {
+            for count in 1...RingGeometry.windowPageSizeRange.upperBound {
                 let path = RingGeometry.arcPath(count: count, anchor: anchor)
                 XCTAssertTrue(CGRect(x: 0, y: 0, width: 480, height: 480).contains(path.boundingBoxOfPath))
                 for index in 0..<count {
@@ -22,7 +22,7 @@ final class RingGeometryTests: XCTestCase {
 
     func testAttachedArcHasNoRadialGap() {
         XCTAssertEqual(RingGeometry.appOuter, RingGeometry.windowInner)
-        for count in 1...4 {
+        for count in 1...RingGeometry.windowPageSizeRange.upperBound {
             let path = RingGeometry.arcPath(count: count, anchor: .pi / 2)
             XCTAssertTrue(path.contains(RingGeometry.point(angle: .pi / 2, radius: RingGeometry.appOuter + 0.05)))
         }
@@ -45,7 +45,7 @@ final class RingGeometryTests: XCTestCase {
     }
 
     func testSectorJoinsDiskAcrossItsEntireWidthWithoutRoundCaps() {
-        for count in 2...4 {
+        for count in RingGeometry.windowPageSizeRange {
             for anchor in [0.0, .pi / 2, .pi, .pi * 1.75] {
                 let half = RingGeometry.arcHalfAngle(count: count)
                 let arc = RingGeometry.arcPath(count: count, anchor: anchor)

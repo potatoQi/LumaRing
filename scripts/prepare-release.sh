@@ -11,6 +11,7 @@ ASSETS="$PROJECT_DIR/dist/release-v$VERSION"
 bash scripts/build.sh
 python3 scripts/check-bundle.py dist/LumaRing.app
 ARCHIVE="$PROJECT_DIR/dist/LumaRing-$VERSION-macOS.zip"
+INSTALLER="$PROJECT_DIR/dist/LumaRing-$VERSION-macOS.dmg"
 # Publish the local folder atomically only after all signatures and bundle checks pass.
 STAGING_DIR="$(mktemp -d "$PROJECT_DIR/dist/.release.XXXXXX")"
 trap 'rm -rf "$STAGING_DIR"' EXIT
@@ -30,10 +31,12 @@ if ! "$SPARKLE_BIN/generate_appcast" --account local.lumaring.app "${APPCAST_ARG
   echo 'Update signing failed. Allow Sparkle generate_appcast to access the existing local.lumaring.app key in your login Keychain, then retry. Do not regenerate the key.' >&2
   exit 1
 fi
+# Add the installer only after appcast generation so Sparkle continues using the ZIP.
+cp "$INSTALLER" "$STAGED_ASSETS/"
 python3 scripts/validate-release.py "$STAGED_ASSETS" --check-bundle
-# Embedded notes are inside the signed feed; upload only these three final files.
+# Embedded notes are inside the signed feed; upload only these four final files.
 rm "$STAGED_ASSETS/LumaRing-$VERSION-macOS.md"
-(cd "$STAGED_ASSETS" && shasum -a 256 "LumaRing-$VERSION-macOS.zip" appcast.xml > SHA256SUMS)
+(cd "$STAGED_ASSETS" && shasum -a 256 "LumaRing-$VERSION-macOS.dmg" "LumaRing-$VERSION-macOS.zip" appcast.xml > SHA256SUMS)
 # A concurrent attempt must not overwrite another completed release folder.
 [[ ! -e "$ASSETS" ]] || { echo "Release assets already exist: $ASSETS" >&2; exit 1; }
 mv "$STAGED_ASSETS" "$ASSETS"

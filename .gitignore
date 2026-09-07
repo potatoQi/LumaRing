@@ -8,8 +8,13 @@ work/
 __pycache__/
 *.pyc
 *.p12
+*.pfx
 *.p8
 *.pem
 *.key
+*.keychain
+*.keychain-db
+id_rsa
+id_ed25519
 .env
 .env.*

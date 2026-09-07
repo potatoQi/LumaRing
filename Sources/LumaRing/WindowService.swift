@@ -62,7 +62,7 @@ final class WindowService {
         let error = AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &raw)
         guard error == .success else {
             if error == .apiDisabled { return .permissionRequired }
-            return .unavailable(error == .cannotComplete ? "应用暂时未响应，请稍后重试" : "此应用暂未提供可切换窗口")
+            return .unavailable(error == .cannotComplete ? L10n.text("应用暂时未响应，请稍后重试", "The app is not responding. Try again shortly.") : L10n.text("此应用暂未提供可切换窗口", "This app has no available windows"))
         }
         guard let elements = raw as? [AXUIElement] else { return .ready([]) }
         var result: [WindowRecord] = []
@@ -91,7 +91,7 @@ final class WindowService {
             if let sizeValue = axValue(values[6], type: .cgSize) { AXValueGetValue(sizeValue, .cgSize, &size) }
             guard size.width > 1, size.height > 1 else { continue }
             result.append(WindowRecord(id: "\(pid):\(CFHash(element))", pid: pid,
-                                       title: title.isEmpty ? "未命名窗口" : title,
+                                       title: title.isEmpty ? L10n.text("未命名窗口", "Untitled window") : title,
                                        minimized: minimized, fullscreen: fullscreen,
                                        frame: CGRect(origin: position, size: size), element: element))
         }

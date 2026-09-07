@@ -15,6 +15,9 @@ jobs:
       - name: Release policy and signature tests
         run: python3 -m unittest discover -s Tests/ReleaseTools -v
       - name: Build universal local bundle
+        env:
+          # Disposable CI artifacts never use the owner's private signing identity.
+          LUMARING_SIGN_IDENTITY: "-"
         run: bash scripts/build.sh
       - name: Validate bundle and version
         run: |

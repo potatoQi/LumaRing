@@ -32,10 +32,10 @@ enum PreviewFailure: Error, Equatable {
     }
     var message: String {
         switch self {
-        case .permissionDenied: return "系统拒绝了录屏访问。请在设置中检测预览权限。"
-        case .minimized: return "窗口已最小化，点击即可恢复。"
-        case .unmatched: return "暂时无法确认这个窗口，仍可点击切换。"
-        case .capture(let domain, let code): return "预览暂不可用（\(domain) · \(code)），仍可点击切换。"
+        case .permissionDenied: return L10n.text("系统拒绝了录屏访问。请在设置中检测预览权限。", "Screen Recording access was denied. Check preview access in settings.")
+        case .minimized: return L10n.text("窗口已最小化，点击即可恢复。", "This window is minimized. Click to restore it.")
+        case .unmatched: return L10n.text("暂时无法确认这个窗口，仍可点击切换。", "This window could not be matched. You can still click to switch.")
+        case .capture(let domain, let code): return L10n.text("预览暂不可用（\(domain) · \(code)），仍可点击切换。", "Preview unavailable (\(domain) · \(code)). You can still click to switch.")
         }
     }
 }

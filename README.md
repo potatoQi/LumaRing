@@ -1,106 +1,32 @@
-# LumaRing · 光环
+# LumaRing
 
-原生 macOS 应用、窗口与浏览器标签页切换工具。**按一次快捷键呼出，用鼠标点击 App 或窗口切换。**
+<p align="center">
+  <img src="docs/assets/logo.png" alt="LumaRing" width="100" />
+</p>
 
-## 使用
+<p align="center">
+  English · <a href="README.zh-CN.md">简体中文</a>
+</p>
 
-1. 打开 `LumaRing.app`，在设置中授予辅助功能权限。
-2. 按一次默认呼出组合键 **Option + Tab**。
-3. 鼠标移向 App；有多个窗口时，会展开紧贴主圆盘的窗口圆弧。
-4. 点击 App 或具体窗口即可切换；再次按呼出快捷键或点击圆盘外关闭。
+<p align="center">
+  <a href="docs/assets/demo.mp4">
+    <img src="docs/assets/demo.gif" alt="Watch the LumaRing demo" width="960" />
+  </a>
+</p>
 
-“按住选择、松开切换”默认关闭，可在设置中开启。
+---
 
-也可以点击菜单栏图标呼出，再点击 App 或窗口。只有一个窗口的 App 不展开圆弧；已读取到的最小化单窗口会直接恢复。
+**A small ring for switching apps, windows, and browser tabs on macOS.**
 
-- **应用翻页**：在主圆盘上滚动，或点击中心箭头。
-- **窗口翻页**：在窗口圆弧上滚动，或点击中心箭头；中心明确标注“应用”或“窗口”。
-- **关闭**：点击圆盘外。
-- **设置**：右键圆盘或菜单栏图标。
+Press **Option + Tab**, point, and click. Hover over an app to reveal its windows or browser tabs in an attached arc.
 
-圆盘只使用呼出组合键和鼠标，不提供文本搜索、数字选择、方向键导航或其他选择快捷键。
+Requires **macOS 14 or later**. Supports Apple Silicon and Intel.
 
-## 外观与设置
+## Get started
 
-- 主圆盘、窗口圆弧和预览卡片为不透明纯白 / 纯黑背景，跟随系统外观，无玻璃模糊。
-- 图标采用浅米白底、深色七圆环，与菜单栏图标呼应，图标资源使用独立版本名称以更新缓存。
-- 默认点击选择，按应用名称排序。
-- 分区大小默认每页 **12** 个 App，可设为 **4–24**，包括 6、8、16 等。图标自动适应密度。
-- 二级圆弧使用平直侧边的扇环，与主盘共用一条外轮廓，整段内缘连续贴合。
-- 圆盘默认直径约 255 pt，展开等待 80 ms。1.3 首次启动会应用这两个默认值、12 分区及关闭按住选择；保留已有组合键、过滤与登录启动。
-- App 图标旁始终不显示名称；当前名称显示在圆盘中心。
-- 可设置呼出组合键、展开等待、圆盘直径、分区大小、最小化窗口、排序、应用管理、登录启动和预览。
-- 登录启动使用系统登录项；升级保留用户已有选择。
+1. Download the **DMG** from [Releases](https://github.com/potatoQi/LumaRing/releases), open it, and drag **LumaRing.app** onto **Applications**.
+2. Open LumaRing and grant **Accessibility** access in its settings.
+3. Press **Option + Tab**, or click the menu bar icon, to open the ring.
+4. Hover over an app to reveal its windows, then click the app or a window to switch.
 
-## 浏览器标签页
-
-在 **设置 → 应用管理** 中，每个应用可以选择“窗口”或“标签页”，默认全部为“窗口”。目前适配 **Microsoft Edge 和 Google Chrome**；其他应用的选项禁用，仍可勾选是否在轮盘中显示。
-
-选择“标签页”后点击“连接浏览器”，允许 macOS 自动化权限。无需浏览器扩展。圆弧显示这个浏览器各窗口内的标签页，每页四个，可滚动翻页；只有一个标签页时不展开圆弧，直接点击应用切换。应用管理只列出正在运行的普通应用。
-
-标签按浏览器窗口顺序和标签顺序排列。点击时重新解析稳定 ID，支持标签重新排序或移动到另一个窗口；已关闭或正在变动的目标会提示重新呼出。后台标签悬停显示标题和网址，不提供图片预览，也不会为截图自动切换页面。关闭圆盘后清理读取的标签列表，不在后台持续查询。
-
-## 大窗口预览
-
-预览位于所选窗口的圆弧旁，默认尺寸 **840 × 630 pt**，可在“通用 → 轮盘 → 预览大小”中调为 **400 × 300 至 960 × 720 pt**。自动选择邻近可用方向，优先保留较大的尺寸；空间不足时按比例缩小，避开圆盘并约束在当前屏幕内。
-
-预览功能默认启用，但**显示窗口图片需要单独授予屏幕录制权限**。没有该权限时，卡片显示窗口标题和授权提示，仍可切换窗口。
-
-权限页的“检测预览权限”直接调用 ScreenCaptureKit，可区分拒绝访问与其他系统错误。如果系统开关已开启但检测被拒绝，请移除旧的 LumaRing 记录，再添加当前应用并重新启动。
-
-悬停窗口 280 ms 后按需读取单张图片，按预览实际大小与屏幕缩放倍率采样，最多 1920 × 1440 像素并保持长宽比。最小化或无法准确匹配的窗口显示标题与状态。卡片不抢键盘焦点；选择改变或圆盘关闭时隐藏并清理引用。
-
-## 权限与资源
-
-辅助功能用于读取和置前目标窗口。浏览器自动化权限只在选择标签页模式并连接该浏览器时请求，用于读取标签标题、网址与切换。屏幕录制仅用于预览图片，不是持续录制。窗口与标签数据仅在本机处理；更新模块通过 HTTPS 访问 GitHub，使用 Sparkle 验证签名和安装更新，不上传窗口内容或系统画像。没有常驻管理员后台服务。
-
-圆盘隐藏后无窗口轮询、截图循环或周期动画。窗口读取使用串行队列、超时、取消标记和过期结果检查；预览至多一项进行中、一个最新待处理任务，并有缓存预算。任何常驻软件都会占用一定资源；测量口径见 [验证记录](docs/VALIDATION.md)。
-
-## 系统要求与范围
-
-- macOS 14 或更高版本。安装包包含 Apple Silicon / Intel；实机测试使用 Apple Silicon。
-- 使用公开辅助功能及 ScreenCaptureKit API。跨 Space / 全屏行为受 macOS 和目标应用限制。
-- 标签页模式仅适配 Edge / Chrome；浮动工具面板与系统对话框不会列入普通窗口列表。
-- 安装包使用本地 ad-hoc 签名，没有 Apple 公证。首次打开可能需要在系统设置的“隐私与安全性”中允许运行；更新后 macOS 可能要求重新添加辅助功能及屏幕录制授权。
-
-## 版本与更新
-
-当前计划发布的版本为 **v0.1.0**。版本只由项目所有者决定，`VERSION` 是唯一来源，日常编译和提交不会自动升版本。
-
-默认每天检查 GitHub 的新正式版本，支持安装更新、跳过此版本和稍后提醒。菜单与设置均有“检查更新…”入口，也可以关闭自动检查。安装必须由用户选择，不会静默更新。
-
-采用本地打包并签署更新文件、手动上传 GitHub Release 的方式，不要求 Apple 发布证书、公证或 GitHub Secrets。运行 `bash scripts/prepare-release.sh` 仅生成本地发布文件，不上传或发布。详细步骤见 [发布指南](docs/RELEASING.md)。
-
-## 开发与验证
-
-```bash
-swift build --disable-keychain --disable-netrc
-swift test --disable-keychain --disable-netrc
-python3 -m unittest discover -s Tests/ReleaseTools -v
-bash scripts/build.sh
-```
-
-产物为 `dist/LumaRing.app` 与 `dist/LumaRing-<VERSION>-macOS.zip`。可用 Xcode 打开 `Package.swift`。
-
-```bash
-# 实际窗口测试使用专门的空白测试应用
-bash scripts/build-fixture.sh
-open "work/LumaRing Test Windows.app"
-LUMARING_LIVE_TESTS=1 LUMARING_SNAPSHOT_DIR="$PWD/work/snapshots" swift test
-
-# 仅编译当前机器架构
-LUMARING_UNIVERSAL=0 bash scripts/build.sh
-
-# 安装本地构建，需先从菜单退出已运行的 LumaRing
-bash scripts/install.sh
-```
-
-真实窗口测试需要测试进程已有辅助功能权限；图片测试需要其已有录屏权限。普通 `swift test` 会跳过两项系统集成测试。重新启动测试窗口应用可恢复初始最小化状态。
-
-如以后有可用的 Developer ID Application 证书，可通过 `LUMARING_SIGN_IDENTITY` 指定，这是可选项；当前发布流程使用免费的本地签名和 Sparkle 更新签名。
-
-## 卸载
-
-先在设置中关闭登录启动，从菜单退出 LumaRing，再删除应用。可在系统设置中移除辅助功能和屏幕录制授权。偏好保存于 `local.lumaring.app` 的 UserDefaults 域。
-
-MIT 许可，见 [LICENSE](LICENSE)。
+Press the shortcut again or click outside the ring to dismiss it. If macOS blocks the first launch, allow LumaRing in **System Settings → Privacy & Security**.

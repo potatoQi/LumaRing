@@ -1,6 +1,7 @@
 import XCTest
 import AppKit
 import Carbon
+import LumaRingCore
 @testable import LumaRing
 
 final class BrowserTabTests: XCTestCase {
@@ -132,9 +133,22 @@ final class BrowserTabTests: XCTestCase {
         view.setWindows(.ready(records), for: 100)
         XCTAssertTrue(view.showsWindowArc)
         XCTAssertEqual(view.message, "7 个标签页")
-        XCTAssertEqual(view.visibleWindows.count, 4)
+        XCTAssertEqual(view.visibleWindows.count, 6)
         view.changeWindowPage(1)
-        XCTAssertEqual(view.visibleWindows.map(\.id), ["4", "5", "6"])
+        XCTAssertEqual(view.visibleWindows.map(\.id), ["6"])
+        for size in RingGeometry.windowPageSizeRange {
+            options.windowPageSize = size
+            view.reset(apps: [app], options: options); view.select(app)
+            view.setWindows(.ready(records), for: 100)
+            var seen: [String] = []
+            for _ in 0..<RingGeometry.pageCount(total: records.count, size: size) {
+                XCTAssertLessThanOrEqual(view.visibleWindows.count, size)
+                seen += view.visibleWindows.map(\.id)
+                view.changeWindowPage(1)
+            }
+            XCTAssertEqual(seen, records.map(\.id))
+            XCTAssertEqual(view.windowPage, 0)
+        }
         view.cancelHover()
     }
 }

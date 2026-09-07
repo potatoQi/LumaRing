@@ -6,15 +6,15 @@
 
 `hover App → WindowService serial worker → batched AX attributes → RequestGate → attached window arc`
 
-`hover window → 280 ms one-shot delay → WindowPreview + PreviewService → ScreenCaptureKit still`
+`hover window → immediate WindowPreview + PreviewService → ScreenCaptureKit still`
 
 `release invocation chord / mouse click → hide UI → Launch Services reopen → unminimize if needed → AXMain + AXRaise`
 
 ## Interaction
 
-The only selection inputs are the registered invocation chord and mouse. Carbon registration handles key press/release; held mode is optional and disabled by default. The controller records whether the panel was opened by the chord, so unrelated releases cannot commit a menu-bar session. Pointer hover is tracked separately from the delayed window-query selection. Releasing before the hover delay selects the actual pointed app, not a previously queried app. Releasing in empty space cancels.
+The only selection inputs are the registered invocation chord and mouse. Carbon registration handles key press/release; held mode is optional and disabled by default. The controller records whether the panel was opened by the chord, so unrelated releases cannot commit a menu-bar session. App hover starts the window or tab query immediately. Pointer hover is tracked separately from asynchronous query results, so release selects the actual pointed app. Window and tab preview cards appear immediately; uncached window images arrive asynchronously. Releasing in empty space cancels.
 
-Application pages default to 12 and accept 4–24 entries. Icon sizes adapt to density. Window arcs show up to four entries per page and only exist when multiple eligible windows are present. The default sort order is localized application name; order remains fixed during a selection session. Center controls prioritize window pages when expanded and otherwise page applications, including when accessibility access is unavailable.
+Application pages default to 12 and accept 4–24 entries. Icon sizes adapt to density. Window arcs default to six entries per page, accept 2–8 entries for both windows and browser tabs, and only exist when multiple eligible items are present. The default sort order is localized application name; order remains fixed during a selection session. Center controls prioritize window pages when expanded and otherwise page applications, including when accessibility access is unavailable.
 
 No text input filtering, number shortcuts or arrow-key navigation remains. Accessibility actions still expose selection and paging without relying on those shortcuts.
 
@@ -38,7 +38,7 @@ PreviewService allows one capture in flight and one latest pending request. Canc
 
 ## Preferences and upgrade
 
-Options implements tolerant decoding so newly added keys cannot reset a user's shortcut, exclusions or chosen size. A one-time v4 migration applies the requested 80 ms hover delay, 520-point logical panel (approximately 255-point disk), 12 applications per page and disabled held mode. Shortcut, exclusions, sorting and preview preferences remain intact. Deleted settings are no longer encoded. Login items remain managed independently by SMAppService.
+Options implements tolerant decoding so newly added keys cannot reset a user's shortcut, exclusions or chosen size. A one-time v4 migration applies the 520-point logical panel (approximately 255-point disk), 12 applications per page and disabled held mode. Shortcut, exclusions, sorting and preview preferences remain intact. Deleted settings, including the former hover delay, are ignored on decode and no longer encoded. Login items remain managed independently by SMAppService.
 
 The app uses a versioned icon resource and explicitly loads its own applicationIconImage. Installation replaces a verified whole bundle instead of merging stale contents. LaunchServices registration can be refreshed for this bundle without flushing global caches or restarting Finder.
 
@@ -46,14 +46,14 @@ The app uses a versioned icon resource and explicitly loads its own applicationI
 
 Only public APIs. The window and tab paths have no network access. Sparkle is the sole third-party runtime dependency and fetches the configured GitHub update feed and user-selected archives over HTTPS. No private window-server symbols or TCC database editing. Permissions are requested through system UI. Window titles are displayed, not logged; performance logs contain durations only. Captured content stays in memory during normal use.
 
-## Application activation (1.3.2)
+## Application activation
 
 Both application selection and window selection use ApplicationActivator. It asks Launch Services to reopen the existing application with activation enabled, without creating a new process or adding Recent Items. For explicit window selection, AX unminimize/main/raise follows activation on the bounded serial worker. An app with exactly one known eligible window can fall back to application activation when its custom window does not implement AXRaise. Multiwindow selection continues to require successful target-window raising. Activation errors reach the existing error UI.
 
-Version 1.4 defaults the invocation chord to Option + Tab. A one-time migration updates the former Control + Option + Space default while retaining custom choices. Preview width is independently Codable, bounded on decode, and defaults to 640 for existing installations.
+The invocation chord defaults to Option + Tab. A one-time migration updates the former Control + Option + Space default while retaining custom choices. Preview width is independently Codable, bounded on decode, and defaults to 840 points.
 
 
-## Browser adapters (1.5)
+## Browser adapters
 
 `Options.appContentModes[bundleID] → WindowService OR BrowserTabService → shared attached arc`
 
@@ -66,7 +66,7 @@ A serial worker has bounded Apple Event waits (at most 700 ms each), a 2-second 
 The bundle declares NSAppleEventsUsageDescription and the hardened runtime automation entitlement. Browser titles and URLs stay in memory and are never included in diagnostic logs. Tab hover cards display metadata, and never capture an unrelated active page as the selected background tab.
 
 
-## Owner-controlled releases and updates (v0.1.0)
+## Owner-controlled releases and updates
 
 VERSION is the sole release version source; build-time stamping writes both bundle version fields without modifying tracked metadata. Prior 1.x labels were unpublished local iterations. The installed legacy build needs one manual migration to 0.1.0 because Sparkle must not perform numeric downgrades.
 
@@ -74,4 +74,4 @@ UpdateService retains one SPUStandardUpdaterController, starts it once after lau
 
 The updater has menu and settings entry points. The public key and repository are committed in Resources/UpdateConfig.json. The matching private key is in the login Keychain under account local.lumaring.app and is never included in an app or source archive.
 
-Release preparation is local: build a universal ad-hoc signed bundle, sign its archive and appcast using the existing Sparkle key in the login Keychain, verify against the committed public key, then atomically expose the three release assets. Failed attempts clean staging files and completed release folders cannot be overwritten. No Apple credentials or GitHub Secrets are required. CI only tests and builds; tagging, uploading and publishing remain separate owner actions. Developer ID signing is optional; unsigned-by-Apple distribution can encounter Gatekeeper and permission prompts.
+Release preparation is local: build a universal bundle with the stable Keychain signing identity selected by Resources/SigningIdentity.json, package it as a drag-to-install DMG for first-time users and a ZIP for Sparkle, sign the ZIP and appcast using the existing Sparkle key in the login Keychain, verify against the committed public key, then atomically expose four release assets (DMG, ZIP, appcast and checksums). SigningIdentity.json contains only the public certificate name and fingerprint; the private key stays in the Keychain. A missing identity stops the build; disposable CI builds explicitly request ad-hoc signing. The DMG is added after appcast generation so the update feed always selects the ZIP. Read-only mounting verifies the Applications link, app signature and exact bundle contents against the ZIP before unmounting. Failed attempts clean staging files and completed release folders cannot be overwritten. No Apple credentials or GitHub Secrets are required. CI only tests and builds; tagging, uploading and publishing remain separate owner actions. Developer ID signing is optional; unsigned-by-Apple distribution can encounter Gatekeeper and permission prompts.

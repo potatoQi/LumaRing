@@ -1,6 +1,7 @@
 import AppKit
 import Carbon
 import Combine
+import LumaRingCore
 import ScreenCaptureKit
 
 struct Shortcut: Codable, Equatable {
@@ -20,7 +21,6 @@ struct Shortcut: Codable, Equatable {
 struct Options: Codable {
     var shortcut = Shortcut()
     var holdToSelect = false
-    var hoverDelay = 0.08
     var ringSize = 520.0
     var previews = true
     var previewWidth = 840.0
@@ -29,6 +29,7 @@ struct Options: Codable {
     var sortByName = true
     var excludedBundleIDs: [String] = []
     var appPageSize = 12
+    var windowPageSize = RingGeometry.windowPageSize
     var appContentModes: [String: AppContentMode] = [:]
     func contentMode(for bundleID: String) -> AppContentMode {
         BrowserAdapters.supports(bundleID) ? (appContentModes[bundleID] ?? .windows) : .windows
@@ -36,13 +37,12 @@ struct Options: Codable {
 
     init() {}
     private enum CodingKeys: String, CodingKey {
-        case shortcut, holdToSelect, hoverDelay, ringSize, previews, previewWidth, includeMinimized, sortByName, excludedBundleIDs, appPageSize, appContentModes
+        case shortcut, holdToSelect, ringSize, previews, previewWidth, includeMinimized, sortByName, excludedBundleIDs, appPageSize, windowPageSize, appContentModes
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         shortcut = try c.decodeIfPresent(Shortcut.self, forKey: .shortcut) ?? Shortcut()
         holdToSelect = try c.decodeIfPresent(Bool.self, forKey: .holdToSelect) ?? false
-        hoverDelay = try c.decodeIfPresent(Double.self, forKey: .hoverDelay) ?? 0.08
         ringSize = try c.decodeIfPresent(Double.self, forKey: .ringSize) ?? 520
         previews = try c.decodeIfPresent(Bool.self, forKey: .previews) ?? true
         previewWidth = min(960, max(400, try c.decodeIfPresent(Double.self, forKey: .previewWidth) ?? 840))
@@ -52,11 +52,24 @@ struct Options: Codable {
         let rawModes = try c.decodeIfPresent([String: String].self, forKey: .appContentModes) ?? [:]
         appContentModes = rawModes.mapValues { AppContentMode(rawValue: $0) ?? .windows }
         appPageSize = min(24, max(4, try c.decodeIfPresent(Int.self, forKey: .appPageSize) ?? 12))
+        windowPageSize = min(RingGeometry.windowPageSizeRange.upperBound, max(RingGeometry.windowPageSizeRange.lowerBound,
+            try c.decodeIfPresent(Int.self, forKey: .windowPageSize) ?? RingGeometry.windowPageSize))
     }
 }
 
 final class Preferences: ObservableObject {
     static let shared = Preferences()
+    @Published var language = AppLanguage.current {
+        didSet {
+            guard language != oldValue else { return }
+            language.save(to: .standard)
+            captureMessage = nil
+            if shortcutError != nil {
+                shortcutError = L10n.text("快捷键被占用，请换一个组合。菜单栏入口仍可使用。", "This shortcut is in use. Choose another combination, or use the menu bar icon.")
+            }
+            NotificationCenter.default.post(name: .lumaRingLanguageDidChange, object: nil)
+        }
+    }
     @Published var options: Options {
         didSet {
             if let data = try? JSONEncoder().encode(options) { UserDefaults.standard.set(data, forKey: "options.v1") }
@@ -89,10 +102,8 @@ final class Preferences: ObservableObject {
             }
             UserDefaults.standard.set(true, forKey: "optionTabDefault.v5")
         }
-        options.hoverDelay = min(0.5, max(0.08, options.hoverDelay))
         if !UserDefaults.standard.bool(forKey: "simpleDefaults.v4") {
             options.holdToSelect = false
-            options.hoverDelay = 0.08
             options.ringSize = 520
             options.appPageSize = 12
             UserDefaults.standard.set(true, forKey: "simpleDefaults.v4")
@@ -115,14 +126,14 @@ final class Preferences: ObservableObject {
     @MainActor func requestCapture() {
         guard !checkingCapture else { return }
         checkingCapture = true
-        captureMessage = "正在检查窗口预览权限…"
+        captureMessage = L10n.text("正在检查窗口预览权限…", "Checking window preview access…")
         Task { @MainActor in
             defer { checkingCapture = false }
             do {
                 // Use the same API as previews. Legacy CG preflight can disagree with ScreenCaptureKit.
                 _ = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: false)
                 recordCaptureAccess(true)
-                captureMessage = "窗口预览权限正常。悬停圆弧中的窗口即可查看。"
+                captureMessage = L10n.text("窗口预览权限正常。悬停圆弧中的窗口即可查看。", "Preview access is working. Hover over a window in the arc to preview it.")
             } catch {
                 let failure = PreviewFailure(error: error)
                 if failure == .permissionDenied { recordCaptureAccess(false) }

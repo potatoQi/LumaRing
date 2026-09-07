@@ -48,7 +48,7 @@ final class ApplicationCatalog {
             if let cached = records[app.processIdentifier] { return cached }
             let icon = app.icon ?? NSImage(systemSymbolName: "app", accessibilityDescription: nil)!
             let record = AppRecord(pid: app.processIdentifier, bundleID: app.bundleIdentifier ?? "",
-                                   name: app.localizedName ?? "应用", icon: icon)
+                                   name: app.localizedName ?? L10n.text("应用", "Apps"), icon: icon)
             records[app.processIdentifier] = record
             return record
         }
