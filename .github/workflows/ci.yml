@@ -1,0 +1,24 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Swift tests
+        run: swift test --disable-keychain --disable-netrc
+      - name: Release policy and signature tests
+        run: python3 -m unittest discover -s Tests/ReleaseTools -v
+      - name: Build universal development bundle
+        run: bash scripts/build.sh
+      - name: Validate bundle and version
+        run: |
+          codesign --verify --deep --strict dist/LumaRing.app
+          python3 scripts/check-bundle.py dist/LumaRing.app
+      - name: Sparkle signed-feed smoke test
+        run: bash scripts/smoke-update.sh

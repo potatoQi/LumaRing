@@ -1,0 +1,15 @@
+.build/
+dist/
+.DS_Store
+*.xcuserstate
+.swiftpm/
+work/
+
+__pycache__/
+*.pyc
+*.p12
+*.p8
+*.pem
+*.key
+.env
+.env.*
