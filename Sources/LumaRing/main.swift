@@ -92,10 +92,7 @@ import SwiftUI
         ring.dismiss()
         Preferences.shared.refreshPermissions()
         if settingsWindow == nil {
-            let host = NSHostingController(rootView: SettingsView { [weak self] in
-                self?.settingsWindow?.orderOut(nil)
-                DispatchQueue.main.async { self?.ring.show() }
-            })
+            let host = NSHostingController(rootView: SettingsView())
             let window = NSWindow(contentViewController: host)
             window.title = "LumaRing 设置"
             window.styleMask = [.titled, .closable, .miniaturizable]

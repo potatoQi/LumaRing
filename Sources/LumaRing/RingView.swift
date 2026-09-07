@@ -52,10 +52,6 @@ import LumaRingCore
         refreshArtwork()
     }
 
-    private var diskRect: CGRect {
-        CGRect(x: RingGeometry.center.x - RingGeometry.appOuter, y: RingGeometry.center.y - RingGeometry.appOuter,
-               width: RingGeometry.appOuter * 2, height: RingGeometry.appOuter * 2)
-    }
     var showsWindowArc: Bool { selectedApp != nil && windows.count > 1 }
     var arcAnchor: Double {
         let index = visibleApps.firstIndex { $0.pid == selectedApp } ?? 0
@@ -88,7 +84,6 @@ import LumaRingCore
 
     private var tracking: NSTrackingArea?
     private var scrollTime = 0.0
-    private var accessibilityItems: [RingAccessibleItem] = []
 
     override var acceptsFirstResponder: Bool { true }
     override var isOpaque: Bool { false }
@@ -297,12 +292,6 @@ import LumaRingCore
     private var muted: NSColor { .secondaryLabelColor }
     private var accent: NSColor { .controlAccentColor }
     private var dark: Bool { effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua }
-    private var outline: NSColor { NSColor.white.withAlphaComponent(dark ? 0.18 : 0.70) }
-
-    private func stroke(_ path: CGPath) {
-        guard let context = NSGraphicsContext.current?.cgContext else { return }
-        context.addPath(path); context.setStrokeColor(outline.cgColor); context.setLineWidth(0.75); context.strokePath()
-    }
 
     private func drawDisk() {
         for (index, app) in visibleApps.enumerated() {
@@ -396,7 +385,6 @@ import LumaRingCore
             add("下一页应用", help: "滚动或点击翻页", rect: NSRect(x: c.x + 2, y: c.y - 47, width: 46, height: 24)) { [weak self] in self?.changeAppPage(1) }
         }
         add("设置", help: "右键圆盘打开设置", rect: NSRect(x: c.x - 35, y: c.y - 16, width: 70, height: 42)) { [weak self] in self?.onSettings?() }
-        accessibilityItems = items
         setAccessibilityElement(false)
         setAccessibilityChildren(items)
     }

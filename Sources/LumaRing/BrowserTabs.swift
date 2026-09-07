@@ -3,7 +3,7 @@ import Carbon
 import Combine
 import LumaRingCore
 
-enum AppContentMode: String, Codable, CaseIterable {
+enum AppContentMode: String, Codable {
     case windows, tabs
     var title: String { self == .tabs ? "标签页" : "窗口" }
 }
@@ -102,9 +102,6 @@ final class BrowserEvents {
     }
     private func get(_ property: String, _ object: Descriptor) throws -> Descriptor {
         try event("getd", object: Self.property(property, of: object))
-    }
-    static func text(_ record: Descriptor, _ key: String) -> String? {
-        record.forKeyword(code(key))?.stringValue
     }
     static func records(_ descriptor: Descriptor) throws -> [Descriptor] {
         guard descriptor.descriptorType == typeAEList else { throw BrowserError.malformed }

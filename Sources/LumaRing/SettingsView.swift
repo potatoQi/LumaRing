@@ -11,7 +11,6 @@ struct SettingsView: View {
     @State private var loginEnabled = SMAppService.mainApp.status == .enabled
     @State private var loginError: String?
     @State private var apps: [NSRunningApplication] = []
-    var onShowRing: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {

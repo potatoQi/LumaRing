@@ -1,11 +1,10 @@
 import AppKit
 
-struct AppRecord: Identifiable {
+struct AppRecord {
     let pid: pid_t
     let bundleID: String
     let name: String
     let icon: NSImage
-    var id: pid_t { pid }
 }
 
 final class ApplicationCatalog {
