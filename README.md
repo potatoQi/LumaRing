@@ -8,11 +8,7 @@
   English · <a href="README.zh-CN.md">简体中文</a>
 </p>
 
-<p align="center">
-  <a href="docs/assets/demo.mp4">
-    <img src="docs/assets/demo.gif" alt="Watch the LumaRing demo" width="960" />
-  </a>
-</p>
+https://github.com/user-attachments/assets/9103f86e-e949-4d1e-bd45-54a783f31457
 
 ---
 
