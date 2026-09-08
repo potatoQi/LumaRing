@@ -8,7 +8,7 @@
   English · <a href="README.zh-CN.md">简体中文</a>
 </p>
 
-https://github.com/user-attachments/assets/d77c6cc2-1532-4ff0-b93f-d4f5d25da50d
+https://github.com/user-attachments/assets/c4fca15e-11c5-487e-b0c1-66b8b39a7a34
 
 ---
 
