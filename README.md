@@ -8,7 +8,7 @@
   English · <a href="README.zh-CN.md">简体中文</a>
 </p>
 
-https://github.com/user-attachments/assets/c4fca15e-11c5-487e-b0c1-66b8b39a7a34
+https://github.com/user-attachments/assets/0d8b2de5-843f-4e54-b971-edb0aaac0c27
 
 ---
 
@@ -24,5 +24,7 @@ Requires **macOS 14 or later**. Supports Apple Silicon and Intel.
 2. Open LumaRing and grant **Accessibility** access in its settings.
 3. Press **Option + Tab**, or click the menu bar icon, to open the ring.
 4. Hover over an app to reveal its windows, then click the app or a window to switch.
+
+For **four-finger tap**, enable the experimental option in **Settings → General → Activation**. Tap and lift all four fingers to open or close the ring.
 
 Press the shortcut again or click outside the ring to dismiss it. If macOS blocks the first launch, allow LumaRing in **System Settings → Privacy & Security**.

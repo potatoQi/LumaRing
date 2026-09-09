@@ -8,6 +8,7 @@ import SwiftUI
     private let catalog = ApplicationCatalog()
     private lazy var ring = RingController(catalog: catalog)
     private let hotKey = HotKey()
+    private let trackpad = TrackpadGesture.shared
     private var subscriptions = Set<AnyCancellable>()
     private var tokens: [NSObjectProtocol] = []
     private var registeredShortcut: Shortcut?
@@ -28,6 +29,10 @@ import SwiftUI
         statusItem.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
         hotKey.onPress = { [weak self] in self?.ring.pressShortcut() }
         hotKey.onRelease = { [weak self] in self?.ring.releaseShortcut() }
+        trackpad.onTap = { [weak self] in
+            guard Preferences.shared.options.fourFingerTap else { return }
+            self?.ring.toggle()
+        }
         ring.onSettings = { [weak self] in self?.showSettings() }
         ring.onError = { [weak self] text in self?.showError(text) }
         catalog.onChange = { [weak self] in self?.ring.applicationsChanged() }
@@ -40,8 +45,35 @@ import SwiftUI
                 Preferences.shared.shortcutError = success ? nil : L10n.text("快捷键被占用，请换一个组合。菜单栏入口仍可使用。", "This shortcut is in use. Choose another combination, or use the menu bar icon.")
             }
         }.store(in: &subscriptions)
-        for name in [NSWorkspace.willSleepNotification, NSWorkspace.screensDidSleepNotification, NSWorkspace.sessionDidResignActiveNotification] {
-            tokens.append(NSWorkspace.shared.notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in DispatchQueue.main.async { self?.ring.dismiss() } })
+        Preferences.shared.$options.map(\.fourFingerTap).removeDuplicates().sink { [weak self] enabled in
+            // Options publishes before SwiftUI finishes updating its binding.
+            DispatchQueue.main.async { self?.trackpad.setEnabled(enabled) }
+        }.store(in: &subscriptions)
+        let sleepEvents: [(Notification.Name, TrackpadGesture.Suspension)] = [
+            (NSWorkspace.willSleepNotification, .sleep), (NSWorkspace.screensDidSleepNotification, .display),
+            (NSWorkspace.sessionDidResignActiveNotification, .session)
+        ]
+        for (name, reason) in sleepEvents {
+            tokens.append(NSWorkspace.shared.notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                DispatchQueue.main.async { self?.ring.dismiss(); self?.trackpad.suspend(reason) }
+            })
+        }
+        let wakeEvents: [(Notification.Name, TrackpadGesture.Suspension)] = [
+            (NSWorkspace.didWakeNotification, .sleep), (NSWorkspace.screensDidWakeNotification, .display),
+            (NSWorkspace.sessionDidBecomeActiveNotification, .session)
+        ]
+        for (name, reason) in wakeEvents {
+            tokens.append(NSWorkspace.shared.notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                DispatchQueue.main.async { self?.trackpad.resume(reason) }
+            })
+        }
+        for (name, locked) in [("com.apple.screenIsLocked", true), ("com.apple.screenIsUnlocked", false)] {
+            tokens.append(DistributedNotificationCenter.default().addObserver(forName: Notification.Name(name), object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    if locked { self?.ring.dismiss(); self?.trackpad.suspend(.screenLock) }
+                    else { self?.trackpad.resume(.screenLock) }
+                }
+            })
         }
         tokens.append(NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in DispatchQueue.main.async { self?.ring.dismiss() } })
         tokens.append(NotificationCenter.default.addObserver(forName: .lumaRingLanguageDidChange, object: nil, queue: .main) { [weak self] _ in
@@ -136,7 +168,7 @@ import SwiftUI
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { showSettings(); return true }
-    func applicationWillTerminate(_ notification: Notification) { ring.dismiss() }
+    func applicationWillTerminate(_ notification: Notification) { trackpad.shutdown(); ring.dismiss() }
 }
 
 if CommandLine.arguments.contains("--diagnostics") {

@@ -12,7 +12,7 @@
 
 ## Interaction
 
-The only selection inputs are the registered invocation chord and mouse. Carbon registration handles key press/release; held mode is optional and disabled by default. The controller records whether the panel was opened by the chord, so unrelated releases cannot commit a menu-bar session. App hover starts the window or tab query immediately. Pointer hover is tracked separately from asynchronous query results, so release selects the actual pointed app. Window and tab preview cards appear immediately; uncached window images arrive asynchronously. Releasing in empty space cancels.
+The invocation chord and mouse remain the default inputs. An optional four-finger trackpad tap toggles the ring independently of held-key selection. Carbon registration handles key press/release; held mode is optional and disabled by default. The controller records whether the panel was opened by the chord, so unrelated releases cannot commit a menu-bar session. App hover starts the window or tab query immediately. Pointer hover is tracked separately from asynchronous query results, so release selects the actual pointed app. Window and tab preview cards appear immediately; uncached window images arrive asynchronously. Releasing in empty space cancels.
 
 Application pages default to 12 and accept 4–24 entries. Icon sizes adapt to density. Window arcs default to six entries per page, accept 2–8 entries for both windows and browser tabs, and only exist when multiple eligible items are present. The default sort order is localized application name; order remains fixed during a selection session. Center controls prioritize window pages when expanded and otherwise page applications, including when accessibility access is unavailable.
 
@@ -32,7 +32,7 @@ A native 90 ms panel fade respects the system Reduce Motion setting. There is no
 
 ## Ownership and cancellation
 
-One application delegate owns one catalog, hotkey and controller. Panel instances are reused. Outside-click monitors exist only while visible. Sleep/session/display changes dismiss the UI. Closing clears app/window snapshots and image references.
+One application delegate owns one catalog, hotkey and controller, and connects the shared trackpad service. Panel instances are reused. Outside-click monitors exist only while visible. Sleep/session/display changes dismiss the UI. Closing clears app/window snapshots and image references.
 
 Window queries run on one serial queue with lock-backed cancellation. They have a 180 ms list timeout, 120 ms per-window batch timeout, 1.2-second iteration budget and 128-window cap. Partial responses are marked. Cache lifetime is one second for up to 24 applications and is cleared on dismissal. Both the controller generation and selected PID reject stale results.
 
@@ -46,7 +46,7 @@ The app uses a versioned icon resource and explicitly loads its own applicationI
 
 ## Trust boundaries
 
-Only public APIs. The window and tab paths have no network access. Sparkle is the sole third-party runtime dependency and fetches the configured GitHub update feed and user-selected archives over HTTPS. No private window-server symbols or TCC database editing. Permissions are requested through system UI. Window titles are displayed, not logged; performance logs contain durations only. Captured content stays in memory during normal use.
+Window switching, previews and browser integration use public APIs. The optional four-finger tap dynamically loads the system private MultitouchSupport framework, whose ABI may change with macOS; missing symbols or devices leave keyboard and mouse activation available. The window and tab paths have no network access. Sparkle is the sole third-party runtime dependency and fetches the configured GitHub update feed and user-selected archives over HTTPS. No private window-server symbols or TCC database editing. Permissions are requested through system UI. Window titles are displayed, not logged; performance logs contain durations only. Captured content stays in memory during normal use.
 
 ## Application activation
 
@@ -77,3 +77,15 @@ UpdateService retains one SPUStandardUpdaterController, starts it once after lau
 The updater has menu and settings entry points. The public key and repository are committed in Resources/UpdateConfig.json. The matching private key is in the login Keychain under account local.lumaring.app and is never included in an app or source archive.
 
 Release preparation is local: build a universal bundle with the stable Keychain signing identity selected by Resources/SigningIdentity.json, package it as a drag-to-install DMG for first-time users and a ZIP for Sparkle, sign the ZIP and appcast using the existing Sparkle key in the login Keychain, verify against the committed public key, then atomically expose four release assets (DMG, ZIP, appcast and checksums). SigningIdentity.json contains only the public certificate name and fingerprint; the private key stays in the Keychain. A missing identity stops the build; disposable CI builds explicitly request ad-hoc signing. The DMG is added after appcast generation so the update feed always selects the ZIP. Read-only mounting verifies the Applications link, app signature and exact bundle contents against the ZIP before unmounting. Failed attempts clean staging files and completed release folders cannot be overwritten. No Apple credentials or GitHub Secrets are required. CI only tests and builds; tagging, uploading and publishing remain separate owner actions. Developer ID signing is optional; unsigned-by-Apple distribution can encounter Gatekeeper and permission prompts.
+
+## Optional four-finger tap
+
+`MultitouchSupport contact callback → per-device C recognizer → one main-queue toggle`
+
+`Options.fourFingerTap` defaults to false, including when decoding older settings. Disabling the feature stops and unregisters all device callbacks and removes device-change notifications. It does not change system gestures or request new keyboard/mouse interception permissions.
+
+The contact ABI declarations are adapted from OpenMultitouchSupport under MIT; its runtime, event objects, async stream and date formatting are not included. TrackpadInput dynamically resolves only the system functions it uses. Up to 16 system multitouch devices have independent fixed-size recognizer state. Contact frames use stack storage, bounded loops and one mutex; no per-frame heap allocation, logging, timer, UI dispatch or touch history is retained. Only a completed tap schedules a main-thread action. A generation check rejects that action if the listener was stopped, restarted or suspended in the meantime.
+
+A gesture needs four distinct, overlapping contacts assembled within 90 ms, at least 20 ms of four-contact overlap, and a total duration of 30–300 ms. Each contact may move at most 0.025 in normalized pad coordinates. All contacts must lift within 100 ms of the first release. Extra/replaced fingers, swipes, long holds, invalid coordinates and discontinuous timestamps cancel the gesture until the pad is clear. A 350 ms cooldown prevents repeated delivery. A fresh listener first waits for an all-fingers-up frame, so contacts already present at enable/wake cannot trigger it. This can consume the first touch after enabling if the device does not deliver an initial empty frame.
+
+Sleep, display sleep, screen lock and inactive-session reasons are tracked separately; listening resumes only after all reasons clear. IOKit matching/termination notifications trigger a single debounced device reconnect, without periodic device polling. Unsupported hardware has a settings message and retry action. Recognition thresholds and sleep/Bluetooth recovery require physical testing on the target devices; automated frame replay does not establish real-world gesture accuracy or overall power use.

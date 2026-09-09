@@ -30,3 +30,9 @@ bash scripts/smoke-update.sh
 The build validates the DMG contents. The smoke test uses a temporary test key and checks the DMG, ZIP, signed feed, checksums, overwrite protection and failure cleanup. It does not install or launch the fixture application. These ad-hoc artifacts are for testing only; see [Releasing](RELEASING.md) for the stable signing identity and release procedure.
 
 Before a release, manually verify the invocation shortcut, mouse selection, window and tab modes, previews, saved preferences, first installation and an actual Sparkle update on the intended macOS versions and architectures. Automated tests do not establish these results. Builds and tests must leave `VERSION` unchanged.
+
+## Four-finger tap
+
+`TrackpadTests` replays contact frames for taps, swipes/pinches, changing finger counts, staggered landing/release, long holds, timestamp gaps, cancellation, cooldown and independent devices. Fake backends check enable/disable, overlapping sleep/session suspension, stale callback delivery and unavailable hardware without changing system preferences or opening a physical device.
+
+On a local build, enable **Settings → General → Four-finger tap to open the ring**. Lift all fingers once, then tap with four fingers in another foreground app. Verify opening and closing, mouse selection and the existing shortcut in both toggle and held modes. Test ordinary pointer movement, two-finger scrolling, three-finger dragging, four-finger desktop/Mission Control swipes, pinches and palm contact for false activation. Finally test disable during contact, lock/unlock, sleep/wake and external trackpad disconnect/reconnect. The feature is experimental and off by default; physical gesture accuracy cannot be verified through Computer Use.

@@ -8,7 +8,7 @@
   <a href="README.md">English</a> · 简体中文
 </p>
 
-https://github.com/user-attachments/assets/c4fca15e-11c5-487e-b0c1-66b8b39a7a34
+https://github.com/user-attachments/assets/0d8b2de5-843f-4e54-b971-edb0aaac0c27
 
 ---
 
@@ -24,5 +24,7 @@ https://github.com/user-attachments/assets/c4fca15e-11c5-487e-b0c1-66b8b39a7a34
 2. 打开 LumaRing，在设置中授予**辅助功能**权限。
 3. 按 **Option + Tab**，或点击菜单栏图标，呼出圆盘。
 4. 鼠标移向应用，展开它的窗口；点击应用或具体窗口即可切换。
+
+如需**四指轻点**，可在**设置 → 通用 → 唤起**中开启这项实验性功能。轻点后抬起四指，即可打开或关闭轮盘。
 
 再次按快捷键或点击圆盘外即可关闭。首次打开若被 macOS 拦截，可前往**系统设置 → 隐私与安全性**允许运行。

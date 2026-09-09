@@ -8,6 +8,7 @@ struct SettingsView: View {
     @ObservedObject var preferences = Preferences.shared
     @ObservedObject var updates = UpdateService.shared
     @ObservedObject var browserTabs = BrowserTabService.shared
+    @ObservedObject var trackpad = TrackpadGesture.shared
     @State private var selectedTab = 0
     @State private var loginEnabled = SMAppService.mainApp.status == .enabled
     @State private var loginError: String?
@@ -95,6 +96,16 @@ struct SettingsView: View {
                 if let error = preferences.shortcutError { Text(error).font(.caption).foregroundStyle(.orange) }
                 Toggle(L10n.text("按住快捷键选择，松开立即切换", "Hold the shortcut to select; release to switch"), isOn: $preferences.options.holdToSelect)
                 Text(L10n.text("关闭时：按一次打开轮盘，点击目标或再次按快捷键关闭。", "When off, press once to open the ring. Click a target to switch, or press again to close.")).font(.caption).foregroundStyle(.secondary)
+                Divider()
+                Toggle(L10n.text("四指轻点呼出轮盘", "Four-finger tap to open the ring"), isOn: $preferences.options.fourFingerTap)
+                Text(L10n.text("轻点后抬起四指，再移动鼠标选择；再次轻点关闭。实验性功能，默认关闭。", "Tap and lift four fingers, then move the pointer to choose. Tap again to close. Experimental; off by default.")).font(.caption).foregroundStyle(.secondary)
+                if let message = trackpad.message {
+                    HStack(alignment: .top) {
+                        Text(message).font(.caption).foregroundStyle(.orange)
+                        Spacer()
+                        Button(L10n.text("重试", "Retry")) { trackpad.retry() }
+                    }
+                }
                 Divider()
                 Toggle(L10n.text("登录时启动", "Launch at login"), isOn: $loginEnabled).onChange(of: loginEnabled) { _, value in
                     do {

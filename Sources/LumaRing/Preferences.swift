@@ -21,6 +21,7 @@ struct Shortcut: Codable, Equatable {
 struct Options: Codable {
     var shortcut = Shortcut()
     var holdToSelect = false
+    var fourFingerTap = false
     var ringSize = 520.0
     var previews = true
     var previewWidth = 840.0
@@ -37,12 +38,13 @@ struct Options: Codable {
 
     init() {}
     private enum CodingKeys: String, CodingKey {
-        case shortcut, holdToSelect, ringSize, previews, previewWidth, includeMinimized, sortByName, excludedBundleIDs, appPageSize, windowPageSize, appContentModes
+        case shortcut, holdToSelect, fourFingerTap, ringSize, previews, previewWidth, includeMinimized, sortByName, excludedBundleIDs, appPageSize, windowPageSize, appContentModes
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         shortcut = try c.decodeIfPresent(Shortcut.self, forKey: .shortcut) ?? Shortcut()
         holdToSelect = try c.decodeIfPresent(Bool.self, forKey: .holdToSelect) ?? false
+        fourFingerTap = try c.decodeIfPresent(Bool.self, forKey: .fourFingerTap) ?? false
         ringSize = try c.decodeIfPresent(Double.self, forKey: .ringSize) ?? 520
         previews = try c.decodeIfPresent(Bool.self, forKey: .previews) ?? true
         previewWidth = min(960, max(400, try c.decodeIfPresent(Double.self, forKey: .previewWidth) ?? 840))

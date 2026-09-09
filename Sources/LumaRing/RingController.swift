@@ -142,7 +142,7 @@ final class RingPanel: NSPanel {
         panel.makeFirstResponder(view)
         view.refresh()
         refreshCounts()
-        // Event monitors exist only while the ring is visible; no global input tap.
+        // Mouse monitors exist only while visible; the trackpad listener is separately opt-in.
         clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] _ in
             DispatchQueue.main.async { self?.dismiss() }
         }
