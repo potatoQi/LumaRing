@@ -95,6 +95,35 @@ final class BrowserTabTests: XCTestCase {
         try api.activate(stale)
         XCTAssertEqual(writes, ["acTI", "pmnd", "pidx"].map(BrowserEvents.code))
     }
+    func testCloseMovedTabUsesStableIDsInsteadOfFreshIndices() throws {
+        let stale = BrowserTab(bundleID: edge, windowID: "10", id: "101", title: "A", url: "", windowIndex: 1, index: 1, minimized: false)
+        var closes = 0
+        let api = client(snapshot([tab("102"), tab("101")], windowID: "20") + [D(string: "101"), .null()]) { event in
+            XCTAssertNotEqual(event.eventID, BrowserEvents.code("setd"), "Closing must not change the active tab")
+            guard event.eventID == BrowserEvents.code("clos") else { return }
+            closes += 1
+            let target = event.paramDescriptor(forKeyword: keyDirectObject)!
+            XCTAssertEqual(target.forKeyword(UInt32(keyAEKeyForm))?.enumCodeValue, UInt32(formUniqueID))
+            XCTAssertEqual(target.forKeyword(UInt32(keyAEKeyData))?.stringValue, "101")
+            let window = target.forKeyword(UInt32(keyAEContainer))!
+            XCTAssertEqual(window.forKeyword(UInt32(keyAEKeyForm))?.enumCodeValue, UInt32(formUniqueID))
+            XCTAssertEqual(window.forKeyword(UInt32(keyAEKeyData))?.stringValue, "20")
+        }
+        try api.close(stale)
+        XCTAssertEqual(closes, 1)
+    }
+    func testCloseMissingOrChangedTabNeverClosesNeighbour() {
+        let stale = BrowserTab(bundleID: edge, windowID: "10", id: "101", title: "A", url: "", windowIndex: 1, index: 1, minimized: false)
+        for responses in [snapshot([tab("102")]), snapshot([tab("101")]) + [D(string: "102")]] {
+            let api = client(responses) { event in XCTAssertNotEqual(event.eventID, BrowserEvents.code("clos")) }
+            XCTAssertThrowsError(try api.close(stale))
+        }
+    }
+    func testCancelledCloseNeverSendsMutation() {
+        let tab = BrowserTab(bundleID: edge, windowID: "10", id: "101", title: "A", url: "", windowIndex: 1, index: 1, minimized: false)
+        let api = BrowserEvents(pid: 42, cancelled: { true }, transport: { _, _ in XCTFail("Cancelled close must not send"); return .null() })
+        XCTAssertThrowsError(try api.close(tab))
+    }
     func testClosedTabNeverSelectsAnotherTab() {
         let stale = BrowserTab(bundleID: edge, windowID: "10", id: "gone", title: "A", url: "", windowIndex: 1, index: 1, minimized: false)
         let api = client(snapshot([tab("102")])) { event in

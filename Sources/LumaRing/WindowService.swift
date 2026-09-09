@@ -105,6 +105,40 @@ final class WindowService {
         return AXValueGetType(value) == type ? value : nil
     }
 
+    // Closing uses the exact AX window and its own close button. No keyboard
+    // shortcut, app-wide fallback, or automatic response to a save dialog.
+    static func requestClose(_ window: WindowRecord,
+                             read: (AXUIElement, String) -> CFTypeRef? = { element, attribute in
+                                 var value: CFTypeRef?
+                                 return AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success ? value : nil
+                             },
+                             press: (AXUIElement) -> Bool = { AXUIElementPerformAction($0, kAXPressAction as CFString) == .success }) -> Bool {
+        guard window.tab == nil else { return false }
+        var pid: pid_t = 0
+        guard AXUIElementGetPid(window.element, &pid) == .success, pid == window.pid else { return false }
+        AXUIElementSetMessagingTimeout(window.element, 0.25)
+        guard read(window.element, kAXRoleAttribute) as? String == kAXWindowRole,
+              let raw = read(window.element, kAXCloseButtonAttribute), CFGetTypeID(raw) == AXUIElementGetTypeID() else { return false }
+        let button = raw as! AXUIElement
+        AXUIElementSetMessagingTimeout(button, 0.25)
+        guard AXUIElementGetPid(button, &pid) == .success, pid == window.pid,
+              read(button, kAXRoleAttribute) as? String == kAXButtonRole,
+              (read(button, kAXEnabledAttribute) as? NSNumber)?.boolValue == true else { return false }
+        return press(button)
+    }
+
+    @MainActor func close(_ window: WindowRecord, completion: @escaping (Bool) -> Void) {
+        work?.cancel()
+        cache.removeValue(forKey: window.pid)
+        guard AXIsProcessTrusted() else { completion(false); return }
+        // Close in the background. Do not activate, raise, reopen or unminimize
+        // the target application/window; any save prompt belongs to that app.
+        queue.async {
+            let success = Self.requestClose(window)
+            DispatchQueue.main.async { completion(success) }
+        }
+    }
+
     @MainActor func activate(_ window: WindowRecord, allowAppFallback: Bool = false, completion: @escaping (Bool) -> Void) {
         work?.cancel()
         // Reopen immediately, before potentially slow third-party accessibility messages.

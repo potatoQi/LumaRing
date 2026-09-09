@@ -14,6 +14,7 @@ final class RingPanel: NSPanel {
     private let counts = AppCountService()
     private let tabs = BrowserTabService.shared
     private let activator = ApplicationActivator()
+    private let quitter = ApplicationQuitter()
     private let previews = PreviewService()
     private let previewCard = WindowPreview()
     private var openedByShortcut = false
@@ -33,6 +34,8 @@ final class RingPanel: NSPanel {
         view.onClose = { [weak self] in self?.dismiss() }
         view.onSettings = { [weak self] in self?.dismiss(); self?.onSettings?() }
         view.onVisibleAppsChanged = { [weak self] in self?.refreshCounts() }
+        // Once the mouse takes over, releasing a held shortcut must not also switch.
+        view.onPointerInteraction = { [weak self] in self?.openedByShortcut = false }
         view.onSelectApp = { [weak self] app in
             guard let self else { return }
             let ticket = self.gate.invalidate()
@@ -67,6 +70,29 @@ final class RingPanel: NSPanel {
                 if !success { self?.onError?(L10n.text("未能置前这个窗口。它可能已经关闭，或位于受系统限制的全屏桌面。", "Could not bring this window forward. It may be closed or on a restricted full-screen desktop.")) }
             }
         }
+        view.onCloseWindow = { [weak self] window in
+            guard let self else { return }
+            self.dismiss()
+            if let tab = window.tab {
+                self.tabs.close(tab, pid: window.pid) { [weak self] result in
+                    if case .failure(let error) = result { self?.onError?(error.localizedDescription) }
+                }
+            } else {
+                self.windows.close(window) { [weak self] success in
+                    if !success { self?.onError?(L10n.text("未能关闭这个窗口。它可能已关闭，或应用暂不允许关闭。", "Could not close this window. It may already be closed, or the app may not allow closing it.")) }
+                }
+            }
+        }
+        view.onQuitApp = { [weak self] app in
+            guard let self else { return }
+            self.dismiss()
+            self.quitter.quit(.init(pid: app.pid, bundleID: app.bundleID)) { [weak self] outcome in
+                if outcome == .rejected {
+                    self?.onError?(L10n.text("未能退出这个应用，请在应用中重试。", "Could not quit this app. Try quitting from the app."))
+                }
+            }
+        }
+
         view.onHoverWindow = { [weak self] window in
             guard let self else { return }
             self.previews.cancelPending()
@@ -164,6 +190,8 @@ final class RingPanel: NSPanel {
     func dismiss() {
         guard isVisible, !closing else { return }
         closing = true
+        // Remove the visible surface before clearing snapshots or dispatching IPC.
+        panel?.orderOut(nil)
         gate.invalidate()
         openedByShortcut = false
         previewCard.dismiss()
@@ -172,7 +200,6 @@ final class RingPanel: NSPanel {
         tabs.cancelAndClear()
         counts.cancelAndClear()
         previews.cancelAndClear()
-        panel?.orderOut(nil)
         if let clickMonitor { NSEvent.removeMonitor(clickMonitor) }; clickMonitor = nil
         if let localClickMonitor { NSEvent.removeMonitor(localClickMonitor) }; localClickMonitor = nil
         // Release AX elements, image buffers and application snapshots when hidden.
@@ -181,7 +208,10 @@ final class RingPanel: NSPanel {
     }
 
     func releaseShortcut() {
-        if isVisible && openedByShortcut && Preferences.shared.options.holdToSelect { view.activateHovered() }
+        if isVisible && openedByShortcut && Preferences.shared.options.holdToSelect {
+            openedByShortcut = false
+            view.activateHovered()
+        }
     }
 
     func windowDidResignKey(_ notification: Notification) { dismiss() }

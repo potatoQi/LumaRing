@@ -5,7 +5,7 @@ import CoreGraphics
 public struct RingGeometry {
     public static let canvas: Double = 480
     public static let center = CGPoint(x: 240, y: 240)
-    public static let appInner: Double = 60
+    public static let appInner: Double = 40
     public static let appOuter: Double = 118
     public static let appRadius: Double = 88
     public static let windowInner: Double = 118
@@ -15,6 +15,26 @@ public struct RingGeometry {
     public static let windowPageSize = 6
     public static let windowPageSizeRange = 2...8
     public static let arcStep: Double = 32 * .pi / 180
+
+    /// The entire primary disk outside its neutral center is selectable.
+    public static func appIndex(at point: CGPoint, count: Int) -> Int? {
+        index(at: point, count: count, inner: appInner, outer: appOuter)
+    }
+
+    public static func appSectorPath(index: Int, count: Int) -> CGPath {
+        let path = CGMutablePath()
+        guard count > 0, index >= 0, index < count else { return path }
+        let middle = angle(index: index, count: count)
+        let half = Double.pi / Double(count)
+        let start = middle - half, end = middle + half
+        path.move(to: point(angle: start, radius: appInner))
+        path.addLine(to: point(angle: start, radius: appOuter))
+        path.addArc(center: center, radius: appOuter, startAngle: start, endAngle: end, clockwise: false)
+        path.addLine(to: point(angle: end, radius: appInner))
+        path.addArc(center: center, radius: appInner, startAngle: end, endAngle: start, clockwise: true)
+        path.closeSubpath()
+        return path
+    }
 
     public static func arcAngle(index: Int, count: Int, anchor: Double) -> Double {
         anchor + (Double(count - 1) / 2 - Double(index)) * arcStep

@@ -98,6 +98,32 @@ final class RingGeometryTests: XCTestCase {
         XCTAssertNil(RingGeometry.index(at: .zero, count: 0, inner: 0, outer: 500))
     }
 
+    func testPrimarySectorsCoverTheWholeSelectableDiskAndMatchHitTesting() throws {
+        for count in 1...24 {
+            let sectors = (0..<count).map { RingGeometry.appSectorPath(index: $0, count: count) }
+            for radius in [RingGeometry.appInner + 0.5, 59, 88, RingGeometry.appOuter - 0.5] {
+                for i in 0..<count {
+                    for fraction in [-0.49, -0.25, 0, 0.25, 0.49] {
+                        let angle = RingGeometry.angle(index: i, count: count) + fraction * 2 * .pi / Double(count)
+                        let point = RingGeometry.point(angle: angle, radius: radius)
+                        XCTAssertEqual(RingGeometry.appIndex(at: point, count: count), i)
+                        XCTAssertTrue(sectors[i].contains(point), "Highlight must cover the hit region")
+                        XCTAssertEqual(sectors.filter { $0.contains(point) }.count, 1, "Exactly one sector owns the point")
+                    }
+                }
+            }
+            for angle in stride(from: 0.0, to: .pi * 2, by: 0.15) {
+                for radius in [0.0, RingGeometry.appInner - 0.5, RingGeometry.appOuter + 0.5] {
+                    let point = RingGeometry.point(angle: angle, radius: radius)
+                    XCTAssertNil(RingGeometry.appIndex(at: point, count: count))
+                    XCTAssertFalse(sectors.contains { $0.contains(point) })
+                }
+            }
+        }
+        XCTAssertTrue(RingGeometry.appSectorPath(index: 0, count: 0).isEmpty)
+        XCTAssertTrue(RingGeometry.appSectorPath(index: -1, count: 6).isEmpty)
+    }
+
     func testPaginationNeverLosesOrDuplicatesItems() {
         for total in 0...200 {
             let indices = (0..<RingGeometry.pageCount(total: total)).flatMap {

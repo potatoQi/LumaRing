@@ -266,6 +266,61 @@ final class RingStateTests: XCTestCase {
         XCTAssertFalse(view.showsWindowArc)
     }
 
+    @MainActor func testNearCenterSectorHoverAndClickDoNotRequireReachingIcon() async {
+        let view = RingView()
+        let applications = apps(6)
+        view.reset(apps: applications, options: Options())
+        for (i, app) in applications.enumerated() {
+            let point = RingGeometry.point(angle: RingGeometry.angle(index: i, count: 6) + 0.35,
+                                           radius: RingGeometry.appInner + 2)
+            view.updateHover(at: point)
+            XCTAssertEqual(view.selectedApp, app.pid)
+            XCTAssertEqual(view.highlightedApp, app.pid)
+            var activated: pid_t?
+            view.onActivateApp = { activated = $0.pid }
+            view.beginPointer(at: point); view.endPointer(at: point)
+            XCTAssertEqual(activated, app.pid)
+        }
+        view.updateHover(at: RingGeometry.center)
+        XCTAssertNil(view.highlightedApp, "Neutral center clears the highlight immediately")
+        var activated = false
+        view.onActivateApp = { _ in activated = true }
+        view.activateHovered()
+        XCTAssertFalse(activated)
+        view.cancelHover()
+    }
+
+    @MainActor func testPrimaryDiskBoundaryDoesNotActivateASecondaryWindow() async {
+        let view = RingView()
+        let applications = apps(6)
+        view.reset(apps: applications, options: Options())
+        view.select(applications[0]); view.setWindows(.ready(windows(3)), for: applications[0].pid)
+        let point = RingGeometry.point(angle: .pi / 2, radius: RingGeometry.appOuter)
+        var activated: pid_t?
+        view.onActivateApp = { activated = $0.pid }
+        view.onActivateWindow = { _ in XCTFail("The shared boundary belongs to the primary disk") }
+        view.updateHover(at: point)
+        view.beginPointer(at: point); view.endPointer(at: point)
+        XCTAssertEqual(activated, applications[0].pid)
+    }
+
+    @MainActor func testCompactCenterPagingDoesNotSelectASector() async {
+        let view = RingView()
+        let applications = apps(20)
+        view.reset(apps: applications, options: Options())
+        view.onActivateApp = { _ in XCTFail("Paging must not activate an app") }
+        let next = CGPoint(x: RingGeometry.center.x + 12, y: RingGeometry.center.y - 26)
+        view.activate(at: next)
+        XCTAssertEqual(view.appPage, 1)
+        let app = view.visibleApps[0]
+        view.select(app); view.setWindows(.ready(windows(10, pid: app.pid)), for: app.pid)
+        view.updateHover(at: next)
+        XCTAssertNil(view.highlightedApp)
+        view.activate(at: next)
+        XCTAssertEqual(view.windowPage, 1)
+        XCTAssertEqual(view.appPage, 1)
+    }
+
     @MainActor func testRenderSolidThemesAndDensePages() async throws {
         guard let directory = ProcessInfo.processInfo.environment["LUMARING_SNAPSHOT_DIR"] else { return }
         _ = NSApplication.shared
@@ -284,9 +339,11 @@ final class RingStateTests: XCTestCase {
                 view.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
                 var options = Options(); options.appPageSize = count
                 view.reset(apps: applications, options: options)
-                for windowCount in [2, 4] {
+                for windowCount in [0, 2, 4] {
                 view.select(applications[0]); view.setWindows(.ready(windows(windowCount)), for: 100)
-                view.updateHover(at: windowPoint(1, count: windowCount))
+                if windowCount == 0 {
+                    view.updateHover(at: RingGeometry.point(angle: RingGeometry.angle(index: 1, count: count), radius: RingGeometry.appInner + 3))
+                } else { view.updateHover(at: windowPoint(1, count: windowCount)) }
                 view.layoutSubtreeIfNeeded()
                 let bitmap = try XCTUnwrap(view.bitmapImageRepForCachingDisplay(in: view.bounds))
                 view.cacheDisplay(in: view.bounds, to: bitmap)

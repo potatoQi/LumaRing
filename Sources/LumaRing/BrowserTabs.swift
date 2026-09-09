@@ -32,7 +32,7 @@ enum BrowserError: LocalizedError {
         case .closed: return L10n.text("标签页已关闭或正在移动，请重新呼出后再试。", "This tab was closed or is moving. Reopen the ring and try again.")
         case .malformed: return L10n.text("浏览器返回的数据无法识别，请更新浏览器后重试。", "The browser returned unrecognized data. Update the browser and try again.")
         case .timeout: return L10n.text("浏览器响应较慢，请稍后重新呼出。", "The browser is responding slowly. Reopen the ring in a moment.")
-        case .event(let code, let step): return L10n.text("无法读取或切换标签页（\(code) \(step)），请重新连接浏览器。", "Could not read or switch tabs (\(code) \(step)). Reconnect the browser.")
+        case .event(let code, let step): return L10n.text("无法读取、切换或关闭标签页（\(code) \(step)），请重新连接浏览器。", "Could not read, switch or close tabs (\(code) \(step)). Reconnect the browser.")
         }
     }
 }
@@ -68,6 +68,16 @@ final class BrowserEvents {
         record.setDescriptor(index.map { Descriptor(int32: Int32($0)) } ?? Descriptor(descriptorType: UInt32(typeAbsoluteOrdinal), data: Descriptor(enumCode: UInt32(kAEAll)).data)!, forKeyword: UInt32(keyAEKeyData))
         return record.coerce(toDescriptorType: typeObjectSpecifier)!
     }
+    static func identifiedObject(_ kind: String, id: String, container: Descriptor = .null()) -> Descriptor {
+        let record = Descriptor.record()
+        record.setDescriptor(Descriptor(typeCode: code(kind)), forKeyword: UInt32(keyAEDesiredClass))
+        record.setDescriptor(container, forKeyword: UInt32(keyAEContainer))
+        record.setDescriptor(Descriptor(enumCode: UInt32(formUniqueID)), forKeyword: UInt32(keyAEKeyForm))
+        // Chromium's scripting dictionary declares window and tab IDs as text.
+        record.setDescriptor(Descriptor(string: id), forKeyword: UInt32(keyAEKeyData))
+        return record.coerce(toDescriptorType: typeObjectSpecifier)!
+    }
+
     static func property(_ name: String, of container: Descriptor) -> Descriptor {
         let record = Descriptor.record()
         record.setDescriptor(Descriptor(typeCode: code("prop")), forKeyword: UInt32(keyAEDesiredClass))
@@ -131,6 +141,17 @@ final class BrowserEvents {
         }
         return (tabs, limited)
     }
+    func close(_ tab: BrowserTab) throws {
+        let fresh = try list(bundleID: tab.bundleID).tabs
+        guard let current = fresh.first(where: { $0.id == tab.id }) else { throw BrowserError.closed }
+        let window = Self.identifiedObject("cwin", id: current.windowID)
+        let target = Self.identifiedObject("CrTb", id: tab.id, container: window)
+        guard try get("ID  ", target).stringValue == tab.id else { throw BrowserError.closed }
+        // Send the close command to stable IDs, never a tab index. If the tab moves
+        // again or disappears, the command fails instead of closing its neighbour.
+        _ = try event("clos", object: target)
+    }
+
     func activate(_ tab: BrowserTab) throws {
         // Re-resolve IDs on every click. Browser tab indices change when tabs move or close.
         let fresh = try list(bundleID: tab.bundleID).tabs
@@ -246,5 +267,17 @@ final class BrowserEvents {
             }
         }
     }
+    func close(_ tab: BrowserTab, pid: pid_t, completion: @escaping (Result<Void, Error>) -> Void) {
+        queue.async {
+            let result = Result {
+                guard NSRunningApplication(processIdentifier: pid)?.bundleIdentifier == tab.bundleID,
+                      BrowserAdapters.supports(tab.bundleID),
+                      BrowserEvents.permission(pid: pid, ask: false) == noErr else { throw BrowserError.permission }
+                try BrowserEvents(pid: pid, budget: 3).close(tab)
+            }
+            DispatchQueue.main.async { completion(result) }
+        }
+    }
+
     func cancelAndClear() { work?.cancel(); work = nil }
 }

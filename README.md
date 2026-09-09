@@ -27,4 +27,6 @@ Requires **macOS 14 or later**. Supports Apple Silicon and Intel.
 
 For **four-finger tap**, enable the experimental option in **Settings → General → Activation**. Tap and lift all four fingers to open or close the ring.
 
+Click **×** on a window or tab in the outer arc to close it. Drag an app icon outside the ring and release to quit the app; drag it back before releasing to cancel.
+
 Press the shortcut again or click outside the ring to dismiss it. If macOS blocks the first launch, allow LumaRing in **System Settings → Privacy & Security**.
