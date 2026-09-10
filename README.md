@@ -8,25 +8,29 @@
   English · <a href="README.zh-CN.md">简体中文</a>
 </p>
 
-https://github.com/user-attachments/assets/0d8b2de5-843f-4e54-b971-edb0aaac0c27
+https://github.com/user-attachments/assets/fd800372-3b4e-4744-beeb-eae9bab52b8a
 
 ---
 
-**A small ring for switching apps, windows, and browser tabs on macOS.**
-
-Press **Option + Tab**, point, and click. Hover over an app to reveal its windows or browser tabs in an attached arc.
+**A small ring for switching apps, windows, and tabs on macOS.**
 
 Requires **macOS 14 or later**. Supports Apple Silicon and Intel.
 
-## Get started
+## Get Start
 
 1. Download the **DMG** from [Releases](https://github.com/potatoQi/LumaRing/releases), open it, and drag **LumaRing.app** onto **Applications**.
-2. Open LumaRing and grant **Accessibility** access in its settings.
-3. Press **Option + Tab**, or click the menu bar icon, to open the ring.
-4. Hover over an app to reveal its windows, then click the app or a window to switch.
-
-For **four-finger tap**, enable the experimental option in **Settings → General → Activation**. Tap and lift all four fingers to open or close the ring.
-
-Click **×** on a window or tab in the outer arc to close it. Drag an app icon outside the ring and release to quit the app; drag it back before releasing to cancel.
+2. Open LumaRing, click its menu bar icon to open settings, and grant **Accessibility** access.
+3. Press **Option + Tab** or tap the trackpad with three or four fingers (choose in settings) to open the ring.
+4. Hover over an app to expand the secondary ring, then click an app, window, or tab to switch.
 
 Press the shortcut again or click outside the ring to dismiss it. If macOS blocks the first launch, allow LumaRing in **System Settings → Privacy & Security**.
+
+## Key Feature
+
+- Switch apps in the primary ring, and windows or tabs in the secondary ring.
+- Open with **Option + Tab** or a three- or four-finger tap.
+- Hover over a window to preview it.
+- Hold **Option** or double-click the center to open your favorite apps.
+- Right-click to create a window, change the secondary mode, or edit a name and color.
+- Pinch with three fingers to minimize the current window (enable in settings).
+- Click **×** to close a window or tab in the secondary ring; drag an app icon out of the primary ring to quit.
