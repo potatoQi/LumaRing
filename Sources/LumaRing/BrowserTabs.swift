@@ -86,17 +86,18 @@ final class BrowserEvents {
         record.setDescriptor(Descriptor(typeCode: code(name)), forKeyword: UInt32(keyAEKeyData))
         return record.coerce(toDescriptorType: typeObjectSpecifier)!
     }
-    private func event(_ operation: String, object: Descriptor, value: Descriptor? = nil) throws -> Descriptor {
-        let propertyCode = object.forKeyword(UInt32(keyAEKeyData))?.typeCodeValue ?? 0
+    private func event(_ operation: String, object: Descriptor?, value: Descriptor? = nil, parameters: [String: Descriptor] = [:]) throws -> Descriptor {
+        let propertyCode = object?.forKeyword(UInt32(keyAEKeyData))?.typeCodeValue ?? 0
         let step = String(bytes: [24, 16, 8, 0].map { UInt8(truncatingIfNeeded: propertyCode >> $0) }, encoding: .ascii) ?? operation
         let remaining = deadline - ProcessInfo.processInfo.systemUptime
         guard !cancelled(), remaining > 0 else { throw BrowserError.timeout }
         let event = Descriptor(eventClass: Self.code("core"), eventID: Self.code(operation), targetDescriptor: target,
                                returnID: AEReturnID(kAutoGenerateReturnID), transactionID: AETransactionID(kAnyTransactionID))
-        event.setParam(object, forKeyword: keyDirectObject)
+        if let object { event.setParam(object, forKeyword: keyDirectObject) }
+        for (key, parameter) in parameters { event.setParam(parameter, forKeyword: Self.code(key)) }
         if let value { event.setParam(value, forKeyword: Self.code("data")) }
         let reply: Descriptor
-        do { reply = try send(event, min(0.7, remaining)) }
+        do { reply = try send(event, min(operation == "crel" ? 2 : 0.7, remaining)) }
         catch {
             let code = Int32((error as NSError).code)
             if code == -1743 || code == -1744 { throw BrowserError.permission }
@@ -141,10 +142,70 @@ final class BrowserEvents {
         }
         return (tabs, limited)
     }
+    func newWindow() throws {
+        // Chromium's installed scripting dictionary exposes core/crel with a
+        // cwin object class. No menu text, keystrokes or page JavaScript involved.
+        let properties = Descriptor.record()
+        properties.setDescriptor(Descriptor(string: "normal"), forKeyword: Self.code("mode"))
+        _ = try event("crel", object: nil, parameters: [
+            "kocl": Descriptor(typeCode: Self.code("cwin")), "prdt": properties
+        ])
+    }
+
+    func count(includeMinimized: Bool) throws -> AppItemCount {
+        let windows = try Self.records(get("ID  ", Self.object("cwin")))
+        var scanned = 0, visible = 0, limited = windows.count > 32
+        for value in windows.prefix(32) {
+            guard let id = value.stringValue else { throw BrowserError.malformed }
+            let window = Self.identifiedObject("cwin", id: id)
+            // Chromium exposes a native count command; badges need neither tab
+            // IDs nor titles/URLs. Keep the same display cap and minimized filter.
+            let result = try event("cnte", object: window, parameters: ["kocl": Descriptor(typeCode: Self.code("CrTb"))])
+            guard [typeSInt16, typeSInt32, typeSInt64].contains(result.descriptorType),
+                  let integer = result.coerce(toDescriptorType: typeSInt32), integer.descriptorType == typeSInt32,
+                  integer.int32Value >= 0 else { throw BrowserError.malformed }
+            let count = min(Int(integer.int32Value), 512 - scanned)
+            let minimized = includeMinimized ? false : try get("pmnd", window).booleanValue
+            if !minimized { visible += count }
+            scanned += count
+            if scanned >= 512 { limited = true; break }
+        }
+        return AppItemCount(value: visible, limited: limited)
+    }
+
+    private func tabIDs(in windowID: String) throws -> [String]? {
+        let window = Self.identifiedObject("cwin", id: windowID)
+        do {
+            return try Self.records(get("ID  ", Self.object("CrTb", container: window))).map {
+                guard let id = $0.stringValue else { throw BrowserError.malformed }
+                return id
+            }
+        } catch BrowserError.event(-1728, _) {
+            // A removed source window is expected when its last tab was moved.
+            // Permission failures and timeouts must not start another scan.
+            return nil
+        }
+    }
+
+    private func resolve(_ tab: BrowserTab) throws -> (window: Descriptor, index: Int) {
+        // The usual path needs only the source window's IDs. Titles, URLs and
+        // unrelated windows are irrelevant to selecting or closing this tab.
+        if let index = try tabIDs(in: tab.windowID)?.firstIndex(of: tab.id) {
+            return (Self.identifiedObject("cwin", id: tab.windowID), index + 1)
+        }
+        let windows = try Self.records(get("ID  ", Self.object("cwin")))
+        for value in windows.prefix(32) {
+            guard let windowID = value.stringValue else { throw BrowserError.malformed }
+            guard windowID != tab.windowID else { continue }
+            if let index = try tabIDs(in: windowID)?.firstIndex(of: tab.id) {
+                return (Self.identifiedObject("cwin", id: windowID), index + 1)
+            }
+        }
+        throw BrowserError.closed
+    }
+
     func close(_ tab: BrowserTab) throws {
-        let fresh = try list(bundleID: tab.bundleID).tabs
-        guard let current = fresh.first(where: { $0.id == tab.id }) else { throw BrowserError.closed }
-        let window = Self.identifiedObject("cwin", id: current.windowID)
+        let window = try resolve(tab).window
         let target = Self.identifiedObject("CrTb", id: tab.id, container: window)
         guard try get("ID  ", target).stringValue == tab.id else { throw BrowserError.closed }
         // Send the close command to stable IDs, never a tab index. If the tab moves
@@ -153,16 +214,16 @@ final class BrowserEvents {
     }
 
     func activate(_ tab: BrowserTab) throws {
-        // Re-resolve IDs on every click. Browser tab indices change when tabs move or close.
-        let fresh = try list(bundleID: tab.bundleID).tabs
-        guard let current = fresh.first(where: { $0.id == tab.id }) else { throw BrowserError.closed }
-        let window = Self.object("cwin", index: current.windowIndex)
+        // Re-resolve the tab index, but keep the window addressed by stable ID
+        // so concurrent window reordering cannot redirect any of these writes.
+        let current = try resolve(tab)
+        let window = current.window
+        let minimized = try get("pmnd", window).booleanValue
         let tabObject = Self.object("CrTb", container: window, index: current.index)
-        guard try get("ID  ", window).stringValue == current.windowID,
-              try get("ID  ", tabObject).stringValue == tab.id else { throw BrowserError.closed }
+        guard try get("ID  ", tabObject).stringValue == tab.id else { throw BrowserError.closed }
         _ = try event("setd", object: Self.property("acTI", of: window), value: Descriptor(int32: Int32(current.index)))
         guard try get("ID  ", Self.property("acTa", of: window)).stringValue == tab.id else { throw BrowserError.closed }
-        if current.minimized {
+        if minimized {
             _ = try event("setd", object: Self.property("pmnd", of: window), value: Descriptor(boolean: false))
         }
         _ = try event("setd", object: Self.property("pidx", of: window), value: Descriptor(int32: 1))
@@ -246,6 +307,18 @@ final class BrowserEvents {
                                  fullscreen: false, frame: .zero, element: AXUIElementCreateApplication(pid), tab: tab)
                 }, limited: snapshot.limited)
             } catch { result = .unavailable(error.localizedDescription) }
+            DispatchQueue.main.async { if !token.isCancelled { completion(result) } }
+        }
+    }
+    func count(pid: pid_t, bundleID: String, includeMinimized: Bool, completion: @escaping (AppItemCount?) -> Void) {
+        work?.cancel()
+        let token = CancellationFlag(); work = token
+        queue.async {
+            guard !token.isCancelled else { return }
+            let result: AppItemCount?
+            if BrowserAdapters.supports(bundleID), BrowserEvents.permission(pid: pid, ask: false) == noErr {
+                result = try? BrowserEvents(pid: pid, cancelled: { token.isCancelled }).count(includeMinimized: includeMinimized)
+            } else { result = nil }
             DispatchQueue.main.async { if !token.isCancelled { completion(result) } }
         }
     }

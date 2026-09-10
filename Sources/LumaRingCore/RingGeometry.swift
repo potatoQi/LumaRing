@@ -22,16 +22,20 @@ public struct RingGeometry {
     }
 
     public static func appSectorPath(index: Int, count: Int) -> CGPath {
+        sectorPath(index: index, count: count, inner: appInner, outer: appOuter)
+    }
+
+    public static func sectorPath(index: Int, count: Int, inner: Double, outer: Double) -> CGPath {
         let path = CGMutablePath()
-        guard count > 0, index >= 0, index < count else { return path }
+        guard count > 0, index >= 0, index < count, inner >= 0, outer > inner else { return path }
         let middle = angle(index: index, count: count)
         let half = Double.pi / Double(count)
         let start = middle - half, end = middle + half
-        path.move(to: point(angle: start, radius: appInner))
-        path.addLine(to: point(angle: start, radius: appOuter))
-        path.addArc(center: center, radius: appOuter, startAngle: start, endAngle: end, clockwise: false)
-        path.addLine(to: point(angle: end, radius: appInner))
-        path.addArc(center: center, radius: appInner, startAngle: end, endAngle: start, clockwise: true)
+        path.move(to: point(angle: start, radius: inner))
+        path.addLine(to: point(angle: start, radius: outer))
+        path.addArc(center: center, radius: outer, startAngle: start, endAngle: end, clockwise: false)
+        path.addLine(to: point(angle: end, radius: inner))
+        path.addArc(center: center, radius: inner, startAngle: end, endAngle: start, clockwise: true)
         path.closeSubpath()
         return path
     }
@@ -46,6 +50,21 @@ public struct RingGeometry {
         let half = arcHalfAngle(count: count)
         let start = anchor - half, end = anchor + half
         path.move(to: point(angle: start, radius: windowOuter))
+        path.addArc(center: center, radius: windowOuter, startAngle: start, endAngle: end, clockwise: false)
+        path.addLine(to: point(angle: end, radius: windowInner))
+        path.addArc(center: center, radius: windowInner, startAngle: end, endAngle: start, clockwise: true)
+        path.closeSubpath()
+        return path
+    }
+
+    public static func windowSectorPath(index: Int, count: Int, anchor: Double) -> CGPath {
+        let path = CGMutablePath()
+        guard count > 0, index >= 0, index < count else { return path }
+        let middle = arcAngle(index: index, count: count, anchor: anchor)
+        let start = middle - (index == count - 1 ? 0.65 : 0.5) * arcStep
+        let end = middle + (index == 0 ? 0.65 : 0.5) * arcStep
+        path.move(to: point(angle: start, radius: windowInner))
+        path.addLine(to: point(angle: start, radius: windowOuter))
         path.addArc(center: center, radius: windowOuter, startAngle: start, endAngle: end, clockwise: false)
         path.addLine(to: point(angle: end, radius: windowInner))
         path.addArc(center: center, radius: windowInner, startAngle: end, endAngle: start, clockwise: true)

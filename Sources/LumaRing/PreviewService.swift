@@ -10,9 +10,18 @@ struct PreviewCandidate {
 }
 
 enum PreviewMatcher {
-    static func match(_ window: WindowRecord, candidates: [PreviewCandidate]) -> CGWindowID? {
+    static func match(_ window: WindowRecord, candidates: [PreviewCandidate], applicationName: String? = nil) -> CGWindowID? {
         let owned = candidates.filter { $0.pid == window.pid && $0.layer == 0 && $0.frame.width > 0 && $0.frame.height > 0 }
-        let titled = owned.filter { !window.title.isEmpty && $0.title == window.title }
+        var titled = owned.filter { !window.title.isEmpty && $0.title == window.title }
+        if titled.isEmpty, let applicationName, !applicationName.isEmpty {
+            // AX may append " - App" or " - App - Profile" to the capture title.
+            // Require the owning app's name and separators; a shared title prefix is not enough.
+            titled = owned.filter {
+                guard let title = $0.title, !title.isEmpty else { return false }
+                let decorated = "\(title) - \(applicationName)"
+                return window.title == decorated || window.title.hasPrefix(decorated + " - ")
+            }
+        }
         // A unique title remains stable when the AX snapshot predates a move or resize.
         if titled.count == 1 { return titled[0].id }
         let pool = titled.isEmpty ? owned : titled
@@ -87,7 +96,8 @@ enum PreviewFailure: Error, Equatable {
                     PreviewCandidate(id: $0.windowID, pid: $0.owningApplication?.processID ?? -1,
                                      title: $0.title, frame: $0.frame, layer: $0.windowLayer)
                 }
-                guard let id = PreviewMatcher.match(window, candidates: candidates),
+                let applicationName = content.applications.first { $0.processID == window.pid }?.applicationName
+                guard let id = PreviewMatcher.match(window, candidates: candidates, applicationName: applicationName),
                       let target = content.windows.first(where: { $0.windowID == id }) else {
                     completion(.failure(.unmatched)); return
                 }

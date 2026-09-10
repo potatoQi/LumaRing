@@ -29,11 +29,12 @@ final class AppCountTests: XCTestCase {
     }
 
     @MainActor func testPageCountsAreSerialUseEachAppsModeAndRejectCancelledResults() {
-        var pending: [(WindowResult) -> Void] = []
+        var pending: [(AppItemCount?) -> Void] = []
         var requests: [(pid_t, AppContentMode)] = []
         var delivered: [pid_t] = []
         var cancellations = 0
-        let service = AppCountService(read: { app, mode, completion in
+        let service = AppCountService(read: { app, mode, includeMinimized, completion in
+            XCTAssertEqual(includeMinimized, Options().includeMinimized)
             requests.append((app.pid, mode)); pending.append(completion)
         }, cancel: { cancellations += 1 })
         var options = Options()
@@ -42,15 +43,15 @@ final class AppCountTests: XCTestCase {
             delivered.append(pid); XCTAssertEqual(count?.badge, "4")
         }
         XCTAssertEqual(requests.map(\.0), [100], "Only one count query runs at a time")
-        pending[0](.ready(records(4)))
+        pending[0](AppItemCount(value: 4, limited: false))
         XCTAssertEqual(requests.map(\.0), [100, 101])
         XCTAssertEqual(requests.map(\.1), [.windows, .tabs])
         // Switching pages invalidates even a late successful result from the previous page.
         service.refresh(apps: [app(102)], options: options) { pid, _ in delivered.append(pid) }
-        pending[1](.ready(records(9)))
+        pending[1](AppItemCount(value: 9, limited: false))
         XCTAssertEqual(delivered, [100])
         service.cancelAndClear()
-        pending[2](.ready(records(4)))
+        pending[2](AppItemCount(value: 4, limited: false))
         XCTAssertEqual(delivered, [100], "Dismissal cannot deliver or start more work")
         XCTAssertEqual(cancellations, 3)
     }

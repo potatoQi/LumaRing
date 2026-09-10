@@ -8,8 +8,8 @@ final class RingStateTests: XCTestCase {
         (0..<count).map { AppRecord(pid: pid_t($0 + 100), bundleID: "test.\($0)", name: "App \($0)",
                                    icon: NSImage(systemSymbolName: "app.fill", accessibilityDescription: nil)!) }
     }
-    private func windows(_ count: Int, pid: pid_t = 100) -> [WindowRecord] {
-        (0..<count).map { WindowRecord(id: "window-\($0)", pid: pid, title: ["项目周报 — 产品设计", "首页 — LumaRing", "灵感收集", "界面调整记录"][$0 % 4], minimized: $0 == 2,
+    private func windows(_ count: Int, pid: pid_t = 100, numbered: Bool = false) -> [WindowRecord] {
+        (0..<count).map { WindowRecord(id: "window-\($0)", pid: pid, title: numbered ? "Window \($0)" : ["项目周报 — 产品设计", "首页 — LumaRing", "灵感收集", "界面调整记录"][$0 % 4], minimized: $0 == 2,
                                        fullscreen: false, frame: CGRect(x: 0, y: 0, width: 600, height: 400),
                                        element: AXUIElementCreateApplication(pid)) }
     }
@@ -111,7 +111,7 @@ final class RingStateTests: XCTestCase {
     @MainActor func testConfigurableWindowPagesPreserveTargetsAndWrap() async {
         let view = RingView()
         let applications = apps(1)
-        let records = windows(19)
+        let records = windows(19, numbered: true)
         for size in RingGeometry.windowPageSizeRange {
             var options = Options(); options.windowPageSize = size
             view.reset(apps: applications, options: options)
@@ -141,7 +141,7 @@ final class RingStateTests: XCTestCase {
         let applications = apps(8)
         var options = Options(); options.windowPageSize = 4
         view.reset(apps: applications, options: options)
-        view.select(applications[0]); view.setWindows(.ready(windows(10)), for: 100)
+        view.select(applications[0]); view.setWindows(.ready(windows(10, numbered: true)), for: 100)
         view.changeWindowPage(1); view.changeWindowPage(1)
         XCTAssertEqual(view.visibleWindows.count, 2)
         view.updateHover(at: windowPoint(1, count: 2))

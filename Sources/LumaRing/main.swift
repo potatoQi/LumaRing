@@ -9,6 +9,10 @@ import SwiftUI
     private lazy var ring = RingController(catalog: catalog)
     private let hotKey = HotKey()
     private let trackpad = TrackpadGesture.shared
+    private lazy var pinchMinimizer = PinchMinimizer(allowed: { [weak self] in
+        guard let self else { return false }
+        return Preferences.shared.options.threeFingerPinch && !self.ring.isVisible
+    })
     private var subscriptions = Set<AnyCancellable>()
     private var tokens: [NSObjectProtocol] = []
     private var registeredShortcut: Shortcut?
@@ -23,16 +27,19 @@ import SwiftUI
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem.button?.image = NSImage(systemSymbolName: "circle.hexagongrid", accessibilityDescription: L10n.text("LumaRing 应用与窗口轮盘", "LumaRing app and window switcher"))
         statusItem.button?.image?.isTemplate = true
-        statusItem.button?.toolTip = L10n.text("LumaRing · 点击呼出轮盘，右键打开菜单", "LumaRing · Click to open the ring; right-click for the menu")
+        statusItem.button?.toolTip = L10n.text("LumaRing · 点击打开设置，右键打开菜单", "LumaRing · Click to open settings; right-click for the menu")
         statusItem.button?.target = self
         statusItem.button?.action = #selector(statusClicked)
         statusItem.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
         hotKey.onPress = { [weak self] in self?.ring.pressShortcut() }
         hotKey.onRelease = { [weak self] in self?.ring.releaseShortcut() }
         trackpad.onTap = { [weak self] in
-            guard Preferences.shared.options.fourFingerTap else { return }
-            self?.ring.toggle()
+            guard Preferences.shared.options.trackpadTap != .disabled else { return }
+            self?.ring.toggleFromTrackpad()
         }
+        trackpad.onPinchBegin = { [weak self] in self?.pinchMinimizer.begin() }
+        trackpad.onPinchComplete = { [weak self] in self?.pinchMinimizer.complete() }
+        trackpad.onPinchCancel = { [weak self] in self?.pinchMinimizer.cancel() }
         ring.onSettings = { [weak self] in self?.showSettings() }
         ring.onError = { [weak self] text in self?.showError(text) }
         catalog.onChange = { [weak self] in self?.ring.applicationsChanged() }
@@ -42,12 +49,13 @@ import SwiftUI
             self.registeredShortcut = success ? options.shortcut : nil
             // Published changes must not recursively mutate SwiftUI during an update.
             DispatchQueue.main.async {
-                Preferences.shared.shortcutError = success ? nil : L10n.text("快捷键被占用，请换一个组合。菜单栏入口仍可使用。", "This shortcut is in use. Choose another combination, or use the menu bar icon.")
+                Preferences.shared.shortcutError = success ? nil : L10n.text("快捷键被占用，请换一个组合。可点击菜单栏图标打开设置。", "This shortcut is in use. Click the menu bar icon to open settings and choose another combination.")
             }
         }.store(in: &subscriptions)
-        Preferences.shared.$options.map(\.fourFingerTap).removeDuplicates().sink { [weak self] enabled in
+        Preferences.shared.$options.map { TrackpadGesture.Configuration(tap: $0.trackpadTap, pinch: $0.threeFingerPinch) }
+            .removeDuplicates().sink { [weak self] gestures in
             // Options publishes before SwiftUI finishes updating its binding.
-            DispatchQueue.main.async { self?.trackpad.setEnabled(enabled) }
+            DispatchQueue.main.async { self?.trackpad.configure(gesture: gestures.tap, pinch: gestures.pinch) }
         }.store(in: &subscriptions)
         let sleepEvents: [(Notification.Name, TrackpadGesture.Suspension)] = [
             (NSWorkspace.willSleepNotification, .sleep), (NSWorkspace.screensDidSleepNotification, .display),
@@ -107,7 +115,7 @@ import SwiftUI
     private func refreshLanguage() {
         configureMainMenu()
         settingsWindow?.title = L10n.text("LumaRing 设置", "LumaRing Settings")
-        statusItem.button?.toolTip = L10n.text("LumaRing · 点击呼出轮盘，右键打开菜单", "LumaRing · Click to open the ring; right-click for the menu")
+        statusItem.button?.toolTip = L10n.text("LumaRing · 点击打开设置，右键打开菜单", "LumaRing · Click to open settings; right-click for the menu")
         statusItem.button?.setAccessibilityLabel(L10n.text("LumaRing 应用与窗口轮盘", "LumaRing app and window switcher"))
         errorPopover?.close()
         ring.dismiss()
@@ -115,7 +123,7 @@ import SwiftUI
 
     @objc private func statusClicked() {
         if NSApp.currentEvent?.type == .rightMouseUp { showMenu() }
-        else { ring.toggle() }
+        else { showSettings() }
     }
 
     private func showMenu() {

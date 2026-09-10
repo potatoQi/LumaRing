@@ -18,10 +18,22 @@ struct Shortcut: Codable, Equatable {
     }
 }
 
+enum TrackpadTap: Int, Codable, CaseIterable {
+    case disabled = 0, threeFingers = 3, fourFingers = 4
+    var label: String {
+        switch self {
+        case .disabled: return L10n.text("关闭", "Off")
+        case .threeFingers: return L10n.text("三指轻点", "Three-finger tap")
+        case .fourFingers: return L10n.text("四指轻点", "Four-finger tap")
+        }
+    }
+}
+
 struct Options: Codable {
     var shortcut = Shortcut()
     var holdToSelect = false
-    var fourFingerTap = false
+    var trackpadTap = TrackpadTap.disabled
+    var threeFingerPinch = false
     var ringSize = 520.0
     var previews = true
     var previewWidth = 840.0
@@ -31,6 +43,7 @@ struct Options: Codable {
     var excludedBundleIDs: [String] = []
     var appPageSize = 12
     var windowPageSize = RingGeometry.windowPageSize
+    var launcherApps: [LauncherApp] = []
     var appContentModes: [String: AppContentMode] = [:]
     func contentMode(for bundleID: String) -> AppContentMode {
         BrowserAdapters.supports(bundleID) ? (appContentModes[bundleID] ?? .windows) : .windows
@@ -38,19 +51,27 @@ struct Options: Codable {
 
     init() {}
     private enum CodingKeys: String, CodingKey {
-        case shortcut, holdToSelect, fourFingerTap, ringSize, previews, previewWidth, includeMinimized, sortByName, excludedBundleIDs, appPageSize, windowPageSize, appContentModes
+        case shortcut, holdToSelect, trackpadTap, threeFingerPinch, ringSize, previews, previewWidth, includeMinimized, sortByName, excludedBundleIDs, appPageSize, windowPageSize, appContentModes, launcherApps
     }
+    private enum LegacyCodingKeys: String, CodingKey { case fourFingerTap }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         shortcut = try c.decodeIfPresent(Shortcut.self, forKey: .shortcut) ?? Shortcut()
         holdToSelect = try c.decodeIfPresent(Bool.self, forKey: .holdToSelect) ?? false
-        fourFingerTap = try c.decodeIfPresent(Bool.self, forKey: .fourFingerTap) ?? false
+        if c.contains(.trackpadTap) {
+            trackpadTap = TrackpadTap(rawValue: (try? c.decode(Int.self, forKey: .trackpadTap)) ?? 0) ?? .disabled
+        } else {
+            let legacy = try decoder.container(keyedBy: LegacyCodingKeys.self)
+            trackpadTap = (try legacy.decodeIfPresent(Bool.self, forKey: .fourFingerTap) ?? false) ? .fourFingers : .disabled
+        }
+        threeFingerPinch = try c.decodeIfPresent(Bool.self, forKey: .threeFingerPinch) ?? false
         ringSize = try c.decodeIfPresent(Double.self, forKey: .ringSize) ?? 520
         previews = try c.decodeIfPresent(Bool.self, forKey: .previews) ?? true
         previewWidth = min(960, max(400, try c.decodeIfPresent(Double.self, forKey: .previewWidth) ?? 840))
         includeMinimized = try c.decodeIfPresent(Bool.self, forKey: .includeMinimized) ?? true
         sortByName = try c.decodeIfPresent(Bool.self, forKey: .sortByName) ?? true
         excludedBundleIDs = try c.decodeIfPresent([String].self, forKey: .excludedBundleIDs) ?? []
+        launcherApps = LauncherApp.unique(try c.decodeIfPresent([LauncherApp].self, forKey: .launcherApps) ?? [])
         let rawModes = try c.decodeIfPresent([String: String].self, forKey: .appContentModes) ?? [:]
         appContentModes = rawModes.mapValues { AppContentMode(rawValue: $0) ?? .windows }
         appPageSize = min(24, max(4, try c.decodeIfPresent(Int.self, forKey: .appPageSize) ?? 12))
@@ -67,7 +88,7 @@ final class Preferences: ObservableObject {
             language.save(to: .standard)
             captureMessage = nil
             if shortcutError != nil {
-                shortcutError = L10n.text("快捷键被占用，请换一个组合。菜单栏入口仍可使用。", "This shortcut is in use. Choose another combination, or use the menu bar icon.")
+                shortcutError = L10n.text("快捷键被占用，请换一个组合。可点击菜单栏图标打开设置。", "This shortcut is in use. Click the menu bar icon to open settings and choose another combination.")
             }
             NotificationCenter.default.post(name: .lumaRingLanguageDidChange, object: nil)
         }

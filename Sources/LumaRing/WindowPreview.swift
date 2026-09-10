@@ -16,7 +16,7 @@ import LumaRingCore
     }
     func show(window: WindowRecord, image: NSImage?, message: String, anchor: CGRect, occupied: CGRect, screen: CGRect, preferredSize: CGSize) {
         let frame = PreviewPlacement.frame(anchor: anchor, avoiding: occupied, screen: screen, preferredSize: preferredSize)
-        view.title = window.title; view.image = image; view.message = message
+        view.title = window.displayTitle; view.image = image; view.message = message
         panel.setFrame(frame, display: false)
         view.frame = NSRect(origin: .zero, size: frame.size)
         view.needsDisplay = true

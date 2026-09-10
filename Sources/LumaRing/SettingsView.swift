@@ -3,6 +3,7 @@ import Carbon
 import LumaRingCore
 import ServiceManagement
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct SettingsView: View {
     @ObservedObject var preferences = Preferences.shared
@@ -37,7 +38,7 @@ struct SettingsView: View {
                     switch selectedTab {
                     case 0: general
                     case 1: permissions
-                    case 2: appFilter
+                    case 2: launcherSettings; appFilter
                     default: guide
                     }
                 }.padding(26).frame(maxWidth: .infinity, alignment: .leading)
@@ -97,8 +98,15 @@ struct SettingsView: View {
                 Toggle(L10n.text("按住快捷键选择，松开立即切换", "Hold the shortcut to select; release to switch"), isOn: $preferences.options.holdToSelect)
                 Text(L10n.text("关闭时：按一次打开轮盘，点击目标或再次按快捷键关闭。", "When off, press once to open the ring. Click a target to switch, or press again to close.")).font(.caption).foregroundStyle(.secondary)
                 Divider()
-                Toggle(L10n.text("四指轻点呼出轮盘", "Four-finger tap to open the ring"), isOn: $preferences.options.fourFingerTap)
-                Text(L10n.text("轻点后抬起四指，再移动鼠标选择；再次轻点关闭。实验性功能，默认关闭。", "Tap and lift four fingers, then move the pointer to choose. Tap again to close. Experimental; off by default.")).font(.caption).foregroundStyle(.secondary)
+                Picker(L10n.text("触控板呼出轮盘", "Open the ring with trackpad"), selection: $preferences.options.trackpadTap) {
+                    ForEach(TrackpadTap.allCases, id: \.self) { Text($0.label).tag($0) }
+                }
+                Text(L10n.text("轻点后抬起手指，再移动鼠标选择；再次轻点关闭。", "Tap and lift your fingers, then move the pointer to choose. Tap again to close.")).font(.caption).foregroundStyle(.secondary)
+                if preferences.options.trackpadTap == .threeFingers {
+                    Text(L10n.text("为避免与系统查词冲突，请在系统设置 → 触控板 → 光标与点按中，将“查找与数据检测器”改为单指用力点按或关闭。", "To avoid triggering Look Up, go to System Settings → Trackpad → Point & Click and set Look up & data detectors to Force Click with One Finger or Off.")).font(.caption).foregroundStyle(.secondary)
+                }
+                Toggle(L10n.text("三指捏合最小化窗口", "Three-finger pinch to minimize the window"), isOn: $preferences.options.threeFingerPinch)
+                Text(L10n.text("三指向内捏合后抬起，最小化当前窗口，无需打开轮盘。需要辅助功能权限，默认关闭。", "Pinch inward with three fingers and lift to minimize the current window, without opening the ring. Requires Accessibility permission; off by default.")).font(.caption).foregroundStyle(.secondary)
                 if let message = trackpad.message {
                     HStack(alignment: .top) {
                         Text(message).font(.caption).foregroundStyle(.orange)
@@ -185,6 +193,38 @@ struct SettingsView: View {
         }
     }
 
+    private var launcherSettings: some View {
+        card(L10n.text("快捷启动", "Quick Launch"), symbol: "option") {
+            Text(L10n.text("未展开二级轮盘时，按住 Option 或双击轮盘中心显示这些应用。松开 Option 返回；双击展开后，再次双击中心返回。", "With no secondary ring showing, hold Option or double-click the center to reveal these apps. Release Option to return; after double-clicking, double-click the center again to return."))
+                .font(.caption).foregroundStyle(.secondary)
+            if preferences.options.launcherApps.isEmpty {
+                Text(L10n.text("添加常用应用，即使尚未运行也能启动。", "Add your favorite apps, including ones that are not running.")).foregroundStyle(.secondary)
+            }
+            ForEach(preferences.options.launcherApps) { app in
+                HStack {
+                    Image(nsImage: NSWorkspace.shared.icon(forFile: app.path)).resizable().frame(width: 24, height: 24)
+                    Text(app.name)
+                    Spacer()
+                    Button(L10n.text("移除", "Remove")) { preferences.options.launcherApps.removeAll { $0.id == app.id } }
+                }
+            }
+            Button(L10n.text("添加应用…", "Add Apps…")) {
+                let panel = NSOpenPanel()
+                panel.title = L10n.text("添加快捷启动应用", "Add Quick Launch Apps")
+                panel.prompt = L10n.text("添加", "Add")
+                panel.allowedContentTypes = [.applicationBundle]
+                panel.allowsMultipleSelection = true
+                panel.canChooseDirectories = false
+                panel.directoryURL = URL(fileURLWithPath: "/Applications", isDirectory: true)
+                panel.begin { result in
+                    guard result == .OK else { return }
+                    let added = panel.urls.compactMap(LauncherApp.read)
+                    preferences.options.launcherApps = LauncherApp.unique(preferences.options.launcherApps + added)
+                }
+            }
+        }
+    }
+
     private var appFilter: some View {
         card(L10n.text("轮盘中的应用", "Apps in the Ring"), symbol: "square.grid.2x2") {
             Text(L10n.text("取消勾选即可隐藏。这里只列出正在运行的普通应用。", "Uncheck an app to hide it. Only currently running regular apps are listed.")).font(.caption).foregroundStyle(.secondary)
@@ -203,16 +243,18 @@ struct SettingsView: View {
                             }
                         }
                         Spacer(minLength: 12)
-                        Picker(L10n.text("\(app.localizedName ?? identifier) 的切换内容", "Content for \(app.localizedName ?? identifier)"), selection: Binding(
-                            get: { preferences.options.contentMode(for: identifier) },
-                            set: { preferences.options.appContentModes[identifier] = $0; browserTabs.refreshAuthorization(apps) }
-                        )) {
-                            Text(L10n.text("窗口", "Windows")).tag(AppContentMode.windows)
-                            Text(L10n.text("标签页", "Tabs")).tag(AppContentMode.tabs)
-                        }.labelsHidden().pickerStyle(.segmented).frame(width: 150)
-                            .disabled(!BrowserAdapters.supports(identifier))
-                            .saturation(BrowserAdapters.supports(identifier) ? 1 : 0)
-                            .help(BrowserAdapters.supports(identifier) ? L10n.text("选择圆弧中显示的内容", "Choose what appears in the arc") : L10n.text("此应用暂未适配标签页", "Tabs are not supported for this app"))
+                        if BrowserAdapters.supports(identifier) {
+                            Picker(L10n.text("\(app.localizedName ?? identifier) 的切换内容", "Content for \(app.localizedName ?? identifier)"), selection: Binding(
+                                get: { preferences.options.contentMode(for: identifier) },
+                                set: { preferences.options.appContentModes[identifier] = $0; browserTabs.refreshAuthorization(apps) }
+                            )) {
+                                Text(L10n.text("窗口", "Windows")).tag(AppContentMode.windows)
+                                Text(L10n.text("标签页", "Tabs")).tag(AppContentMode.tabs)
+                            }.labelsHidden().pickerStyle(.segmented).frame(width: 150)
+                                .help(L10n.text("选择圆弧中显示的内容", "Choose what appears in the arc"))
+                        } else {
+                            Text(L10n.text("窗口", "Windows")).foregroundStyle(.secondary)
+                        }
                     }
                     if preferences.options.contentMode(for: identifier) == .tabs {
                         HStack(alignment: .top) {
@@ -229,9 +271,6 @@ struct SettingsView: View {
                 }
             }
             Text(L10n.text("标签页悬停显示标题与网址；图片预览用于窗口。连接只需首次授权，可在系统设置的“自动化”中管理。", "Tab previews show titles and URLs; window previews show images. Authorize the browser once, then manage access under Automation in System Settings.")).font(.caption).foregroundStyle(.secondary)
-            if apps.contains(where: { preferences.options.contentMode(for: $0.bundleIdentifier ?? "") == .tabs }) {
-                Button(L10n.text("打开自动化设置", "Open Automation Settings")) { preferences.openPrivacy("Privacy_Automation") }
-            }
             HStack {
                 Button(L10n.text("刷新应用列表", "Refresh App List")) { refresh() }
                 Spacer()
@@ -249,10 +288,11 @@ struct SettingsView: View {
                 Text(preferences.options.holdToSelect ? L10n.text("没有选中目标时松开，只会关闭圆盘。", "Releasing without a target closes the ring.") : L10n.text("再次按呼出快捷键或点击圆盘外关闭。", "Press the shortcut again or click outside the ring to close it.")).font(.caption).foregroundStyle(.secondary)
             }
             card(L10n.text("用鼠标操作", "Mouse Controls"), symbol: "computermouse") {
-                Text(L10n.text("也可以点击菜单栏图标呼出，然后点击 App 或窗口切换。", "You can also click the menu bar icon, then click an app or window to switch."))
+                Text(L10n.text("点击菜单栏图标打开设置；使用快捷键或触控板手势呼出轮盘。", "Click the menu bar icon to open settings. Use the shortcut or a trackpad gesture to open the ring."))
                 Text(L10n.text("在圆盘上滚动可翻应用页，在圆弧上滚动可翻窗口页；也可点击中心的左右箭头。", "Scroll over the ring to page through apps, or over the arc to page through windows. You can also click the center arrows."))
-                Text(L10n.text("悬停窗口可在旁边查看大预览。", "Hover over a window to see a large preview beside it."))
-                Text(L10n.text("点击圆盘外关闭；右键圆盘或菜单栏图标打开设置。", "Click outside to close. Right-click the ring or menu bar icon to open settings."))
+                Text(L10n.text("窗口和标签页按名称排序；悬停窗口可查看预览。右键窗口或标签页可关闭，或通过“修改”设置名称和扇形颜色；留空名称恢复原标题。", "Windows and tabs are sorted by name. Hover over a window to preview it; right-click a window or tab to close it or edit its name and sector color. Leave the name empty to restore its original title."))
+                Text(L10n.text("右键应用可新建窗口、选择二级轮盘显示内容或退出应用；右键空白处打开设置。", "Right-click an app to create a window, choose secondary ring content, or quit. Right-click empty space for settings."))
+                Text(L10n.text("未展开二级轮盘时，按住 Option 显示快捷启动应用，松开恢复。在“应用管理”中添加应用。", "With the secondary ring closed, hold Option to show quick-launch apps; release to return. Add apps in App Management."))
             }
             card(L10n.text("权限", "Permissions"), symbol: "lock") {
                 Text(L10n.text("窗口列表与切换需要辅助功能权限；窗口图片预览需要屏幕录制权限。", "Window lists and switching require Accessibility access. Image previews require Screen Recording access."))

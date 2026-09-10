@@ -15,9 +15,15 @@ final class RingPanel: NSPanel {
     private let tabs = BrowserTabService.shared
     private let activator = ApplicationActivator()
     private let quitter = ApplicationQuitter()
+    private let launcherCatalog = LauncherCatalog()
+    private let launcher = ApplicationLauncher()
+    private let windowCreator = ApplicationWindowCreator()
+    private let names = WindowNames()
     private let previews = PreviewService()
     private let previewCard = WindowPreview()
     private var openedByShortcut = false
+    private var presentationID = UUID()
+    private var closeRequests: Set<String> = []
     private var panel: RingPanel?
     private var clickMonitor: Any?
     private var localClickMonitor: Any?
@@ -27,6 +33,8 @@ final class RingPanel: NSPanel {
     var onError: ((String) -> Void)?
     var isVisible: Bool { panel?.isVisible == true }
     private var closing = false
+    private var renameTicket: UUID?
+    private(set) var styleEditor: WindowStyleEditor?
 
     init(catalog: ApplicationCatalog) {
         self.catalog = catalog
@@ -36,19 +44,7 @@ final class RingPanel: NSPanel {
         view.onVisibleAppsChanged = { [weak self] in self?.refreshCounts() }
         // Once the mouse takes over, releasing a held shortcut must not also switch.
         view.onPointerInteraction = { [weak self] in self?.openedByShortcut = false }
-        view.onSelectApp = { [weak self] app in
-            guard let self else { return }
-            let ticket = self.gate.invalidate()
-            let completion: (WindowResult) -> Void = { [weak self] result in
-                guard let self, self.isVisible, self.gate.accepts(ticket) else { return }
-                self.view.setWindows(result, for: app.pid)
-            }
-            self.windows.cancelAndClear()
-            self.tabs.cancelAndClear()
-            if self.view.options.contentMode(for: app.bundleID) == .tabs {
-                self.tabs.load(pid: app.pid, bundleID: app.bundleID, completion: completion)
-            } else { self.windows.load(pid: app.pid, completion: completion) }
-        }
+        view.onSelectApp = { [weak self] app in self?.loadSecondary(for: app) }
         view.onActivateApp = { [weak self] app in
             guard let self else { return }
             self.dismiss()
@@ -57,7 +53,7 @@ final class RingPanel: NSPanel {
             }
         }
         view.onActivateWindow = { [weak self] window in
-            guard let self else { return }
+            guard let self, !self.closeRequests.contains(window.id) else { return }
             let allowAppFallback = self.view.selectedApp == window.pid && self.view.windows.count == 1
             self.dismiss()
             if let tab = window.tab {
@@ -70,19 +66,7 @@ final class RingPanel: NSPanel {
                 if !success { self?.onError?(L10n.text("未能置前这个窗口。它可能已经关闭，或位于受系统限制的全屏桌面。", "Could not bring this window forward. It may be closed or on a restricted full-screen desktop.")) }
             }
         }
-        view.onCloseWindow = { [weak self] window in
-            guard let self else { return }
-            self.dismiss()
-            if let tab = window.tab {
-                self.tabs.close(tab, pid: window.pid) { [weak self] result in
-                    if case .failure(let error) = result { self?.onError?(error.localizedDescription) }
-                }
-            } else {
-                self.windows.close(window) { [weak self] success in
-                    if !success { self?.onError?(L10n.text("未能关闭这个窗口。它可能已关闭，或应用暂不允许关闭。", "Could not close this window. It may already be closed, or the app may not allow closing it.")) }
-                }
-            }
-        }
+        view.onCloseWindow = { [weak self] window in self?.closeSecondary(window) }
         view.onQuitApp = { [weak self] app in
             guard let self else { return }
             self.dismiss()
@@ -91,6 +75,48 @@ final class RingPanel: NSPanel {
                     self?.onError?(L10n.text("未能退出这个应用，请在应用中重试。", "Could not quit this app. Try quitting from the app."))
                 }
             }
+        }
+
+        view.onLaunchApp = { [weak self] app in
+            guard let self else { return }
+            self.dismiss()
+            self.launcher.launch(app) { [weak self] success in
+                if !success { self?.onError?(L10n.text("未能打开这个应用。请在设置中重新添加。", "Could not open this app. Add it again in Settings.")) }
+            }
+        }
+        view.onLauncherModeEntered = { [weak self] in
+            guard let self else { return }
+            self.gate.invalidate()
+            self.windows.cancelAndClear(); self.tabs.cancelAndClear()
+            self.previews.cancelAndClear(); self.previewCard.dismiss()
+        }
+        view.makeAppMenu = { [weak self] app in
+            guard let self else { return NSMenu() }
+            return AppContextMenu.make(app: app, mode: self.view.options.contentMode(for: app.bundleID),
+                discover: { self.windowCreator.discover(pid: app.pid, bundleID: app.bundleID, completion: $0) },
+                newWindow: { [weak self] command in
+                    guard let self else { return }
+                    self.view.afterContextMenu = { [weak self] in
+                        guard let self else { return }
+                        self.dismiss()
+                        self.windowCreator.perform(command) { [weak self] success in
+                            if !success { self?.onError?(L10n.text("未能新建窗口。请确认辅助功能权限，或在应用管理中连接浏览器后重试。", "Could not create a window. Check Accessibility access, or connect the browser in App Management and retry.")) }
+                        }
+                    }
+                },
+                changeMode: { [weak self] mode in
+                    Preferences.shared.options.appContentModes[app.bundleID] = mode
+                    self?.view.changeContentMode(mode, for: app)
+                },
+                quit: { [weak self] in self?.view.onQuitApp?(app) })
+        }
+
+        view.makeWindowMenu = { [weak self] record in
+            AppContextMenu.make(window: record,
+                close: { [weak self] in self?.view.onCloseWindow?($0) },
+                edit: { [weak self] record in
+                    self?.view.afterContextMenu = { [weak self] in self?.edit(record) }
+                })
         }
 
         view.onHoverWindow = { [weak self] window in
@@ -109,6 +135,109 @@ final class RingPanel: NSPanel {
                 }
             }
         }
+    }
+
+    private func loadSecondary(for app: AppRecord, afterClosing closedID: String? = nil, attempt: Int = 0) {
+        let ticket = gate.invalidate()
+        let mode = view.options.contentMode(for: app.bundleID)
+        let completion: (WindowResult) -> Void = { [weak self] result in
+            guard let self, self.isVisible, self.gate.accepts(ticket), self.view.selectedApp == app.pid,
+                  self.view.options.contentMode(for: app.bundleID) == mode else { return }
+            // AXPress can return before the window disappears. Keep the accepted
+            // removal on screen briefly, then reconcile with the actual app state.
+            if let closedID, case .ready(let records, _) = result,
+               records.contains(where: { $0.id == closedID }), attempt < 2 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+                    guard let self, self.isVisible, self.gate.accepts(ticket) else { return }
+                    self.loadSecondary(for: app, afterClosing: closedID, attempt: attempt + 1)
+                }
+                return
+            }
+            let named = self.names.apply(result, pid: app.pid, isTab: mode == .tabs)
+            if closedID != nil, case .unavailable(let message) = named {
+                self.view.message = message; self.view.refresh()
+            } else { self.view.setWindows(named, for: app.pid) }
+        }
+        windows.cancelAndClear(); tabs.cancelAndClear()
+        if mode == .tabs { tabs.load(pid: app.pid, bundleID: app.bundleID, completion: completion) }
+        else { windows.load(pid: app.pid, completion: completion) }
+    }
+
+    private func closeSecondary(_ window: WindowRecord) {
+        guard isVisible, !view.isEditingName, !closeRequests.contains(window.id),
+              let app = view.currentApp, app.pid == window.pid,
+              view.windows.contains(where: { $0.id == window.id }) else { return }
+        let session = presentationID, mode = view.options.contentMode(for: app.bundleID)
+        openedByShortcut = false
+        closeRequests.insert(window.id)
+        view.closingWindowIDs.insert(window.id)
+        view.cancelHover(); previews.cancelAndClear(); previewCard.dismiss()
+        gate.invalidate(); windows.cancelAndClear(); tabs.cancelAndClear()
+        view.refreshArtwork()
+        let finish: (String?) -> Void = { [weak self] error in
+            guard let self else { return }
+            self.closeRequests.remove(window.id)
+            guard self.isVisible, self.presentationID == session else { return }
+            self.view.closingWindowIDs.remove(window.id)
+            guard self.view.selectedApp == app.pid, !self.view.isEditingName,
+                  self.view.options.contentMode(for: app.bundleID) == mode else { self.view.refreshArtwork(); return }
+            if let error {
+                self.view.message = error; self.view.refresh()
+                return
+            }
+            self.view.removeClosedWindow(window)
+            // Refresh only this selected app; preserve other apps' spatial order.
+            self.loadSecondary(for: app, afterClosing: window.id)
+        }
+        if let tab = window.tab {
+            tabs.close(tab, pid: window.pid) { result in
+                if case .failure(let error) = result { finish(error.localizedDescription) }
+                else { finish(nil) }
+            }
+        } else {
+            windows.close(window) { success in
+                finish(success ? nil : L10n.text("未能关闭这个窗口，应用可能需要确认。", "Could not close this window. The app may need confirmation."))
+            }
+        }
+    }
+
+    private func edit(_ record: WindowRecord) {
+        guard isVisible, let panel, !view.isEditingName,
+              let identity = names.identity(for: record.pid) else { return }
+        openedByShortcut = false
+        gate.invalidate(); windows.cancelAndClear(); tabs.cancelAndClear()
+        previews.cancelAndClear(); previewCard.dismiss()
+        view.cancelHover(); view.cancelPointerInteraction()
+        view.isEditingName = true
+        let ticket = UUID(); renameTicket = ticket
+        let editor = WindowStyleEditor(record: record)
+        // Retain and mark the editor before it takes key focus from the ring.
+        styleEditor = editor
+        editor.onSave = { [weak self] name, color in
+            guard let self, self.renameTicket == ticket, self.isVisible,
+                  self.names.update(name: name, color: color, for: record, expected: identity) else { return false }
+            self.finishEditing()
+            self.view.updateWindow(record.id, name: name, color: color)
+            return true
+        }
+        editor.onCancel = { [weak self] in
+            guard let self, self.renameTicket == ticket else { return }
+            self.finishEditing()
+        }
+        editor.show(near: view.occupiedScreenFrame, screen: panel.screen?.visibleFrame ?? panel.frame)
+    }
+
+    private func finishEditing() {
+        renameTicket = nil
+        styleEditor?.dismiss(); styleEditor = nil
+        view.isEditingName = false
+        view.updateOption(pressed: NSEvent.modifierFlags.contains(.option), allowEntry: false)
+        if isVisible { panel?.makeKey(); panel?.makeFirstResponder(view) }
+    }
+
+    func ownsInteractionWindow(_ window: NSWindow?) -> Bool {
+        guard let window else { return false }
+        return window === panel || window === styleEditor?.window
     }
 
     private func presentPreview(_ record: WindowRecord, image: NSImage?, failure: PreviewFailure? = nil) {
@@ -135,8 +264,13 @@ final class RingPanel: NSPanel {
 
     func toggle() { if isVisible { dismiss() } else { show() } }
 
-    func show() {
+    func toggleFromTrackpad() {
+        if isVisible { dismiss() } else { show(fromTrackpad: true) }
+    }
+
+    func show(fromTrackpad: Bool = false) {
         if isVisible { return }
+        presentationID = UUID()
         closing = false
         openedByShortcut = false
         let start = ProcessInfo.processInfo.systemUptime
@@ -163,17 +297,27 @@ final class RingPanel: NSPanel {
         view.frame = NSRect(origin: .zero, size: frame.size)
         view.bounds = NSRect(x: 0, y: 0, width: RingGeometry.canvas, height: RingGeometry.canvas)
         view.reset(apps: catalog.snapshot(options: options), options: options)
+        if fromTrackpad { view.suppressInvocationClicks(at: ProcessInfo.processInfo.systemUptime) }
+        view.launcherApps = launcherCatalog.snapshot(options.launcherApps)
+        // The Option already held by the invocation shortcut must be released first.
+        view.optionPressed = NSEvent.modifierFlags.contains(.option)
         panel.alphaValue = 1
         panel.makeKeyAndOrderFront(nil)
         panel.makeFirstResponder(view)
         view.refresh()
         refreshCounts()
         // Mouse monitors exist only while visible; the trackpad listener is separately opt-in.
-        clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] _ in
-            DispatchQueue.main.async { self?.dismiss() }
+        clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
+            DispatchQueue.main.async {
+                guard let self, self.view.acceptsPointerEvent(event) else { return }
+                if !self.view.isContextMenuOpen { self.dismiss() }
+            }
         }
         localClickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
-            if let self, event.window !== self.panel { self.dismiss() }
+            if let self {
+                guard self.view.acceptsPointerEvent(event) else { return nil }
+                if !self.view.isContextMenuOpen, !self.ownsInteractionWindow(event.window) { self.dismiss() }
+            }
             return event
         }
         let elapsed = (ProcessInfo.processInfo.systemUptime - start) * 1000
@@ -189,7 +333,11 @@ final class RingPanel: NSPanel {
 
     func dismiss() {
         guard isVisible, !closing else { return }
+        presentationID = UUID()
         closing = true
+        renameTicket = nil
+        styleEditor?.dismiss(); styleEditor = nil
+        view.isEditingName = false; view.afterContextMenu = nil
         // Remove the visible surface before clearing snapshots or dispatching IPC.
         panel?.orderOut(nil)
         gate.invalidate()
@@ -214,9 +362,10 @@ final class RingPanel: NSPanel {
         }
     }
 
-    func windowDidResignKey(_ notification: Notification) { dismiss() }
+    func windowDidResignKey(_ notification: Notification) { if !view.isContextMenuOpen && !view.isEditingName { dismiss() } }
 
     func applicationsChanged() {
+        names.pruneTerminated()
         // Keep spatial order stable while selecting. Drop terminated apps only.
         guard isVisible else { return }
         let live = Set(NSWorkspace.shared.runningApplications.filter { !$0.isTerminated }.map(\.processIdentifier))

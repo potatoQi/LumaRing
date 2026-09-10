@@ -49,6 +49,26 @@ final class BrowserTabTests: XCTestCase {
         let indexed = BrowserEvents.object("cwin", index: 2)
         XCTAssertEqual(indexed.forKeyword(UInt32(keyAEKeyData))?.int32Value, 2)
     }
+
+    func testNewWindowUsesNativeCreateCommandAndNeverRetriesUncertainResponse() throws {
+        for fails in [false, true] {
+            var sends = 0
+            let browser = BrowserEvents(pid: 42, transport: { event, timeout in
+                sends += 1
+                XCTAssertEqual(event.eventClass, BrowserEvents.code("core"))
+                XCTAssertEqual(event.eventID, BrowserEvents.code("crel"))
+                XCTAssertNil(event.paramDescriptor(forKeyword: keyDirectObject))
+                XCTAssertEqual(event.paramDescriptor(forKeyword: BrowserEvents.code("kocl"))?.typeCodeValue, BrowserEvents.code("cwin"))
+                XCTAssertEqual(event.paramDescriptor(forKeyword: BrowserEvents.code("prdt"))?.forKeyword(BrowserEvents.code("mode"))?.stringValue, "normal")
+                XCTAssertGreaterThan(timeout, 0.7); XCTAssertLessThanOrEqual(timeout, 2)
+                if fails { throw NSError(domain: NSOSStatusErrorDomain, code: -1712) }
+                return D(eventClass: BrowserEvents.code("aevt"), eventID: BrowserEvents.code("ansr"), targetDescriptor: nil, returnID: 0, transactionID: 0)
+            })
+            if fails { XCTAssertThrowsError(try browser.newWindow()) }
+            else { try browser.newWindow() }
+            XCTAssertEqual(sends, 1)
+        }
+    }
     func testModesDefaultAndRoundTripWithUnknownAdapters() throws {
         var options = Options()
         for id in [edge, "com.google.Chrome", "com.apple.finder"] { XCTAssertEqual(options.contentMode(for: id), .windows) }
@@ -74,7 +94,7 @@ final class BrowserTabTests: XCTestCase {
     func testReorderedTabUsesFreshIndexAndVerifiesSelection() throws {
         let stale = BrowserTab(bundleID: edge, windowID: "10", id: "101", title: "A", url: "", windowIndex: 1, index: 1, minimized: false)
         var sets: [(UInt32, Int32)] = []
-        let api = client(snapshot([tab("102"), tab("101")]) + [D(string: "10"), D(string: "101"), .null(), D(string: "101"), .null()]) { event in
+        let api = client([list([D(string: "102"), D(string: "101")]), D(boolean: false), D(string: "101"), .null(), D(string: "101"), .null()]) { event in
             if event.eventID == BrowserEvents.code("setd") {
                 let object = event.paramDescriptor(forKeyword: keyDirectObject)!
                 sets.append((object.forKeyword(UInt32(keyAEKeyData))!.typeCodeValue, event.paramDescriptor(forKeyword: BrowserEvents.code("data"))!.int32Value))
@@ -87,7 +107,7 @@ final class BrowserTabTests: XCTestCase {
     func testTabMovedToAnotherWindowAndMinimizedRestores() throws {
         let stale = BrowserTab(bundleID: edge, windowID: "old", id: "101", title: "A", url: "", windowIndex: 1, index: 9, minimized: false)
         var writes: [UInt32] = []
-        let api = client(snapshot([tab("101")], windowID: "20", minimized: true) + [D(string: "20"), D(string: "101"), .null(), D(string: "101"), .null(), .null()]) { event in
+        let api = client([list([]), list([D(string: "20")]), list([D(string: "101")]), D(boolean: true), D(string: "101"), .null(), D(string: "101"), .null(), .null()]) { event in
             if event.eventID == BrowserEvents.code("setd") {
                 writes.append(event.paramDescriptor(forKeyword: keyDirectObject)!.forKeyword(UInt32(keyAEKeyData))!.typeCodeValue)
             }
@@ -98,7 +118,7 @@ final class BrowserTabTests: XCTestCase {
     func testCloseMovedTabUsesStableIDsInsteadOfFreshIndices() throws {
         let stale = BrowserTab(bundleID: edge, windowID: "10", id: "101", title: "A", url: "", windowIndex: 1, index: 1, minimized: false)
         var closes = 0
-        let api = client(snapshot([tab("102"), tab("101")], windowID: "20") + [D(string: "101"), .null()]) { event in
+        let api = client([list([D(string: "102")]), list([D(string: "10"), D(string: "20")]), list([D(string: "102"), D(string: "101")]), D(string: "101"), .null()]) { event in
             XCTAssertNotEqual(event.eventID, BrowserEvents.code("setd"), "Closing must not change the active tab")
             guard event.eventID == BrowserEvents.code("clos") else { return }
             closes += 1
@@ -112,9 +132,69 @@ final class BrowserTabTests: XCTestCase {
         try api.close(stale)
         XCTAssertEqual(closes, 1)
     }
+
+    func testNormalCloseAndActivationDoNotReadOtherWindowsOrMetadata() throws {
+        let tab = BrowserTab(bundleID: edge, windowID: "10", id: "101", title: "A", url: "", windowIndex: 9, index: 9, minimized: false)
+        let cases: [(Bool, [D])] = [
+            (true, [list([D(string: "101")]), D(string: "101"), .null()]),
+            (false, [list([D(string: "101")]), D(boolean: false), D(string: "101"), .null(), D(string: "101"), .null()])
+        ]
+        for (closing, responses) in cases {
+            var sends = 0
+            let api = client(responses) { event in
+                sends += 1
+                var object = event.paramDescriptor(forKeyword: keyDirectObject)!
+                while object.descriptorType == typeObjectSpecifier {
+                    let kind = object.forKeyword(UInt32(keyAEDesiredClass))?.typeCodeValue
+                    let key = object.forKeyword(UInt32(keyAEKeyData))!
+                    if kind == BrowserEvents.code("prop") {
+                        XCTAssertNotEqual(key.typeCodeValue, BrowserEvents.code("pnam"))
+                        XCTAssertNotEqual(key.typeCodeValue, BrowserEvents.code("URL "))
+                    }
+                    if kind == BrowserEvents.code("cwin") {
+                        XCTAssertEqual(object.forKeyword(UInt32(keyAEKeyForm))?.enumCodeValue, UInt32(formUniqueID))
+                        XCTAssertEqual(key.stringValue, "10", "Window reordering must not redirect the request")
+                    }
+                    object = object.forKeyword(UInt32(keyAEContainer)) ?? .null()
+                }
+            }
+            if closing { try api.close(tab) } else { try api.activate(tab) }
+            XCTAssertEqual(sends, closing ? 3 : 6)
+        }
+    }
+
+    func testTargetReordersAgainBeforeActivationNeverWrites() {
+        let tab = BrowserTab(bundleID: edge, windowID: "10", id: "101", title: "", url: "", windowIndex: 1, index: 1, minimized: false)
+        let api = client([list([D(string: "101")]), D(boolean: false), D(string: "102")]) { event in
+            XCTAssertNotEqual(event.eventID, BrowserEvents.code("setd"))
+        }
+        XCTAssertThrowsError(try api.activate(tab))
+    }
+
+    func testRemovedSourceWindowCanResolveMovedTabButTimeoutDoesNotScan() throws {
+        let tab = BrowserTab(bundleID: edge, windowID: "old", id: "101", title: "", url: "", windowIndex: 1, index: 1, minimized: false)
+        for errorCode: Int32 in [-1728, -1712, -1743] {
+            var sends = 0
+            let responses = [list([D(string: "20")]), list([D(string: "101")]), D(string: "101"), D.null()]
+            let api = BrowserEvents(pid: 42, transport: { event, _ in
+                sends += 1
+                if sends == 1 { throw NSError(domain: NSOSStatusErrorDomain, code: Int(errorCode)) }
+                guard sends <= 5 else { XCTFail("Unexpected retry"); throw BrowserError.malformed }
+                if event.eventID == BrowserEvents.code("clos") {
+                    let target = event.paramDescriptor(forKeyword: keyDirectObject)!
+                    XCTAssertEqual(target.forKeyword(UInt32(keyAEContainer))?.forKeyword(UInt32(keyAEKeyData))?.stringValue, "20")
+                }
+                let reply = D(eventClass: BrowserEvents.code("aevt"), eventID: BrowserEvents.code("ansr"), targetDescriptor: nil, returnID: 0, transactionID: 0)
+                reply.setParam(responses[sends - 2], forKeyword: keyDirectObject)
+                return reply
+            })
+            if errorCode == -1728 { try api.close(tab); XCTAssertEqual(sends, 5) }
+            else { XCTAssertThrowsError(try api.close(tab)); XCTAssertEqual(sends, 1) }
+        }
+    }
     func testCloseMissingOrChangedTabNeverClosesNeighbour() {
         let stale = BrowserTab(bundleID: edge, windowID: "10", id: "101", title: "A", url: "", windowIndex: 1, index: 1, minimized: false)
-        for responses in [snapshot([tab("102")]), snapshot([tab("101")]) + [D(string: "102")]] {
+        for responses in [[list([D(string: "102")]), list([D(string: "10")])], [list([D(string: "101")]), D(string: "102")]] {
             let api = client(responses) { event in XCTAssertNotEqual(event.eventID, BrowserEvents.code("clos")) }
             XCTAssertThrowsError(try api.close(stale))
         }
@@ -126,7 +206,7 @@ final class BrowserTabTests: XCTestCase {
     }
     func testClosedTabNeverSelectsAnotherTab() {
         let stale = BrowserTab(bundleID: edge, windowID: "10", id: "gone", title: "A", url: "", windowIndex: 1, index: 1, minimized: false)
-        let api = client(snapshot([tab("102")])) { event in
+        let api = client([list([D(string: "102")]), list([D(string: "10")])]) { event in
             XCTAssertNotEqual(event.eventID, BrowserEvents.code("setd"))
         }
         XCTAssertThrowsError(try api.activate(stale))
@@ -149,6 +229,49 @@ final class BrowserTabTests: XCTestCase {
         let result = try client(snapshot((0..<600).map { tab(String($0)) })).list(bundleID: edge)
         XCTAssertEqual(result.tabs.count, 512)
         XCTAssertTrue(result.limited)
+    }
+
+    func testBadgeCountUsesNativeCountAndOnlyReadsMinimizedWhenNeeded() throws {
+        for includeMinimized in [false, true] {
+            var sends = 0, counts = 0
+            var responses = [list([D(string: "10"), D(string: "20")]), D(int32: 4)]
+            if !includeMinimized { responses.append(D(boolean: false)) }
+            responses.append(D(int32: 2))
+            if !includeMinimized { responses.append(D(boolean: true)) }
+            let api = client(responses) { event in
+                sends += 1
+                let object = event.paramDescriptor(forKeyword: keyDirectObject)!
+                if event.eventID == BrowserEvents.code("cnte") {
+                    counts += 1
+                    XCTAssertEqual(event.paramDescriptor(forKeyword: BrowserEvents.code("kocl"))?.typeCodeValue, BrowserEvents.code("CrTb"))
+                    XCTAssertEqual(object.forKeyword(UInt32(keyAEKeyForm))?.enumCodeValue, UInt32(formUniqueID))
+                } else {
+                    XCTAssertEqual(event.eventID, BrowserEvents.code("getd"))
+                    let property = object.forKeyword(UInt32(keyAEKeyData))!.typeCodeValue
+                    XCTAssertTrue(property == BrowserEvents.code("ID  ") || (!includeMinimized && property == BrowserEvents.code("pmnd")))
+                    if property == BrowserEvents.code("ID  ") {
+                        XCTAssertEqual(object.forKeyword(UInt32(keyAEContainer))?.forKeyword(UInt32(keyAEDesiredClass))?.typeCodeValue, BrowserEvents.code("cwin"), "Counts must not request tab IDs")
+                    }
+                }
+            }
+            XCTAssertEqual(try api.count(includeMinimized: includeMinimized), AppItemCount(value: includeMinimized ? 6 : 4, limited: false))
+            XCTAssertEqual(counts, 2); XCTAssertEqual(sends, includeMinimized ? 3 : 5)
+        }
+    }
+
+    func testBadgeCountPreservesLimitsRejectsInvalidRepliesAndCancels() throws {
+        let result = try client([list([D(string: "10"), D(string: "20")]), D(int32: 600)]).count(includeMinimized: true)
+        XCTAssertEqual(result, AppItemCount(value: 512, limited: true))
+        let minimized = try client([list([D(string: "10"), D(string: "20")]), D(int32: 600), D(boolean: true)]).count(includeMinimized: false)
+        XCTAssertEqual(minimized, AppItemCount(value: 0, limited: true))
+        let responses = [list((1...33).map { D(string: String($0)) })] + Array(repeating: D(int32: 1), count: 32)
+        XCTAssertEqual(try client(responses).count(includeMinimized: true), AppItemCount(value: 32, limited: true))
+        for invalid in [D(int32: -1), D.record()] {
+            XCTAssertThrowsError(try client([list([D(string: "10")]), invalid]).count(includeMinimized: true))
+        }
+        XCTAssertEqual(try client([list([])]).count(includeMinimized: true), AppItemCount(value: 0, limited: false))
+        let cancelled = BrowserEvents(pid: 42, cancelled: { true }, transport: { _, _ in XCTFail("Cancelled count must not send"); return .null() })
+        XCTAssertThrowsError(try cancelled.count(includeMinimized: true))
     }
     @MainActor func testSingleWindowWithManyTabsExpandsAndPages() async {
         let view = RingView()

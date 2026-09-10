@@ -11,7 +11,7 @@ final class TrackpadTests: XCTestCase {
     }
     private func ready() -> LRTapRecognizer {
         var r = LRTapRecognizer()
-        LRTapReset(&r)
+        LRTapResetForFingerCount(&r, 4)
         XCTAssertFalse(feed(&r, [], 0))
         return r
     }
@@ -117,11 +117,11 @@ final class TrackpadTests: XCTestCase {
     }
 
     func testEnableDuringContactAndResetDuringTapDoNotTrigger() {
-        var r = LRTapRecognizer(); LRTapReset(&r)
+        var r = LRTapRecognizer(); LRTapResetForFingerCount(&r, 4)
         XCTAssertFalse(tap(&r, at: 1)) // Drain contacts that predate enabling.
         XCTAssertTrue(tap(&r, at: 2))
         XCTAssertFalse(feed(&r, contacts(), 3))
-        LRTapReset(&r)
+        LRTapResetForFingerCount(&r, 4)
         XCTAssertFalse(feed(&r, [], 3.08))
         XCTAssertTrue(tap(&r, at: 4))
     }
@@ -155,10 +155,10 @@ final class TrackpadTests: XCTestCase {
 
     func testPreferenceRoundTripAndLegacyCompatibility() throws {
         var options = try JSONDecoder().decode(Options.self, from: Data(#"{"ringSize":480,"excludedBundleIDs":["keep.me"]}"#.utf8))
-        XCTAssertFalse(options.fourFingerTap)
-        options.fourFingerTap = true
+        XCTAssertEqual(options.trackpadTap, .disabled)
+        options.trackpadTap = .fourFingers
         let result = try JSONDecoder().decode(Options.self, from: JSONEncoder().encode(options))
-        XCTAssertTrue(result.fourFingerTap)
+        XCTAssertEqual(result.trackpadTap, .fourFingers)
         XCTAssertEqual(result.ringSize, 480)
         XCTAssertEqual(result.excludedBundleIDs, ["keep.me"])
     }
@@ -170,10 +170,10 @@ final class TrackpadTests: XCTestCase {
             return LRTrackpadResult(generation: token, devices: 1, available: true)
         }, stopListening: { stops += 1 }, observeDevices: false)
         service.onTap = { taps += 1 }
-        service.setEnabled(false)
+        service.configure(gesture: .disabled, pinch: false)
         XCTAssertEqual(starts, 0); XCTAssertEqual(stops, 0)
-        service.setEnabled(true)
-        service.setEnabled(true)
+        service.configure(gesture: .fourFingers, pinch: false)
+        service.configure(gesture: .fourFingers, pinch: false)
         XCTAssertEqual(starts, 1)
         service.deliver(1); XCTAssertEqual(taps, 1)
         service.suspend(.sleep); service.suspend(.session); service.suspend(.screenLock)
@@ -183,10 +183,10 @@ final class TrackpadTests: XCTestCase {
         service.resume(.screenLock); XCTAssertEqual(starts, 2)
         service.deliver(1); XCTAssertEqual(taps, 1)
         service.deliver(2); XCTAssertEqual(taps, 2)
-        service.setEnabled(false)
+        service.configure(gesture: .disabled, pinch: false)
         service.deliver(2); XCTAssertEqual(taps, 2)
         service.resume(.display); XCTAssertEqual(starts, 2)
-        service.setEnabled(true)
+        service.configure(gesture: .fourFingers, pinch: false)
         service.deliver(2); XCTAssertEqual(taps, 2)
         service.shutdown()
         service.deliver(3); XCTAssertEqual(taps, 2)
@@ -199,7 +199,7 @@ final class TrackpadTests: XCTestCase {
                 LRTrackpadResult(generation: 1, devices: 0, available: available)
             }, stopListening: {}, observeDevices: false)
             service.onTap = { XCTFail("Unavailable listener must not deliver a tap") }
-            service.setEnabled(true)
+            service.configure(gesture: .fourFingers, pinch: false)
             XCTAssertEqual(service.status, available ? .noDevice : .unavailable)
             service.deliver(1)
             service.shutdown()

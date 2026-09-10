@@ -11,6 +11,9 @@ struct WindowRecord: Identifiable {
     let frame: CGRect
     let element: AXUIElement
     var tab: BrowserTab? = nil
+    var customName: String? = nil
+    var customColor: SectorColor? = nil
+    var displayTitle: String { customName ?? title }
 }
 
 enum WindowResult {

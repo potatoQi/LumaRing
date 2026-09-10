@@ -9,10 +9,11 @@
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 static void *framework;
 static CFArrayRef devices;
-static struct { MTDeviceRef device; LRTapRecognizer recognizer; } slots[16];
+static struct { MTDeviceRef device; LRTapRecognizer recognizer; LRPinchRecognizer pinch; } slots[16];
 static int slotCount;
 static uint64_t generation, frames, taps;
 static LRTapCallback onTap;
+static LRPinchCallback onPinch;
 static CFArrayRef (*createList)(void);
 static int32_t (*startDevice)(MTDeviceRef, int);
 static int32_t (*stopDevice)(MTDeviceRef);
@@ -38,23 +39,30 @@ static bool loadFramework(void) {
 static void frameCallback(MTDeviceRef device, MTTouch *touches, int count, double time, int frame) {
     (void)frame;
     pthread_mutex_lock(&lock);
-    if (!onTap) { pthread_mutex_unlock(&lock); return; }
+    if (!onTap && !onPinch) { pthread_mutex_unlock(&lock); return; }
     for (int i = 0; i < slotCount; ++i) {
         if (slots[i].device != device) continue;
         ++frames;
         LRContact contacts[16];
         if (count < 0 || count > 16 || (count && !touches)) {
-            LRTapReset(&slots[i].recognizer);
+            LRTapResetForFingerCount(&slots[i].recognizer, slots[i].recognizer.targetCount);
+            if (onPinch && slots[i].pinch.announced && !slots[i].pinch.blocked)
+                onPinch(generation, i, LRPinchCancelled);
+            LRPinchReset(&slots[i].pinch);
             break;
         }
         for (int j = 0; j < count; ++j)
             contacts[j] = (LRContact){touches[j].identifier, touches[j].state,
                 touches[j].normalizedPosition.position.x, touches[j].normalizedPosition.position.y};
-        if (LRTapFrame(&slots[i].recognizer, contacts, count, time)) {
+        if (onTap && LRTapFrame(&slots[i].recognizer, contacts, count, time)) {
             ++taps;
             // The Swift callback only enqueues one main-thread action. Holding
             // this lock fences delivery against disable/stop without frame tasks.
             onTap(generation);
+        }
+        if (onPinch) {
+            LRPinchEvent event = LRPinchFrame(&slots[i].pinch, contacts, count, time);
+            if (event != LRPinchNone) onPinch(generation, i, event);
         }
         break;
     }
@@ -64,6 +72,7 @@ static void frameCallback(MTDeviceRef device, MTTouch *touches, int count, doubl
 void LRTrackpadStop(void) {
     pthread_mutex_lock(&lock);
     onTap = NULL;
+    onPinch = NULL;
     ++generation;
     pthread_mutex_unlock(&lock);
     // Never hold the callback lock across private start/stop calls: the driver
@@ -79,10 +88,11 @@ void LRTrackpadStop(void) {
     if (devices) { CFRelease(devices); devices = NULL; }
 }
 
-LRTrackpadResult LRTrackpadStart(LRTapCallback callback) {
+LRTrackpadResult LRTrackpadStartConfigured(LRTapCallback callback, LRPinchCallback pinchCallback, unsigned tapFingers) {
     LRTrackpadStop();
     LRTrackpadResult result = {.generation = generation};
-    if (!callback || !loadFramework()) return result;
+    if (tapFingers != 3 && tapFingers != 4) callback = NULL;
+    if ((!callback && !pinchCallback) || !loadFramework()) return result;
     result.available = true;
     devices = createList();
     if (!devices) return result;
@@ -102,10 +112,12 @@ LRTrackpadResult LRTrackpadStart(LRTapCallback callback) {
     slotCount = startedCount;
     for (int i = 0; i < slotCount; ++i) {
         slots[i].device = started[i];
-        LRTapReset(&slots[i].recognizer);
+        LRTapResetForFingerCount(&slots[i].recognizer, tapFingers);
+        LRPinchReset(&slots[i].pinch);
     }
     frames = taps = 0;
     onTap = slotCount ? callback : NULL;
+    onPinch = slotCount ? pinchCallback : NULL;
     pthread_mutex_unlock(&lock);
     result.devices = startedCount;
     if (!result.devices) LRTrackpadStop();
@@ -114,7 +126,7 @@ LRTrackpadResult LRTrackpadStart(LRTapCallback callback) {
 
 LRTrackpadStatistics LRTrackpadGetStatistics(void) {
     pthread_mutex_lock(&lock);
-    LRTrackpadStatistics result = {frames, taps, onTap ? slotCount : 0};
+    LRTrackpadStatistics result = {frames, taps, (onTap || onPinch) ? slotCount : 0};
     pthread_mutex_unlock(&lock);
     return result;
 }
