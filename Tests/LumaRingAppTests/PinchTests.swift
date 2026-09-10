@@ -6,9 +6,11 @@ import LumaRingCore
 
 final class PinchTests: XCTestCase {
     private func contacts(scale: Float = 1, dx: Float = 0, state: Int32 = 4) -> [LRContact] {
-        [(Float(-0.2), Float(-0.1)), (0.2, -0.1), (0, 0.2)].enumerated().map {
-            LRContact(id: Int32($0.offset + 1), state: state,
-                      x: 0.5 + $0.element.0 * scale + dx, y: 0.5 + $0.element.1 * scale)
+        let origins: [(x: Float, y: Float)] = [(-0.2, -0.1), (0.2, -0.1), (0, 0.2)]
+        return origins.enumerated().map { index, origin in
+            let x: Float = 0.5 + origin.x * scale + dx
+            let y: Float = 0.5 + origin.y * scale
+            return LRContact(id: Int32(index + 1), state: state, x: x, y: y)
         }
     }
     private func feed(_ r: inout LRPinchRecognizer, _ c: [LRContact], _ time: Double) -> LRPinchEvent {
