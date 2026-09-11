@@ -97,6 +97,70 @@ final class LauncherTests: XCTestCase {
         XCTAssertTrue(view.showsLauncher)
         XCTAssertNil(view.launcherTarget(at: RingGeometry.point(angle: 0, radius: 158)))
     }
+    @MainActor func testActionPanelLauncherKeepsFocusAndRestoresActionPage() async throws {
+        let launcher = view()
+        let ordinary = RingPanel(contentRect: CGRect(x: -10000, y: -10000, width: 520, height: 520), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        ordinary.contentView = launcher
+        let actions = ActionRingView(frame: CGRect(x: 0, y: 0, width: 480, height: 480))
+        actions.actions = (0..<8).map { AppAction(id: "action.\($0)", name: "Action \($0)", shortcut: Shortcut()) }
+        actions.ready = true; actions.turnPage(1)
+        let panel = ActionPanel(contentRect: ordinary.frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        panel.contentView = actions
+        let source = NSWindow(contentRect: CGRect(x: -10000, y: -10000, width: 400, height: 100), styleMask: [.titled], backing: .buffered, defer: false)
+        let field = NSSearchField(frame: CGRect(x: 20, y: 20, width: 300, height: 24))
+        field.stringValue = "fixture query"; source.contentView?.addSubview(field)
+        source.makeKeyAndOrderFront(nil); source.makeFirstResponder(field)
+        let editor = try XCTUnwrap(field.currentEditor()); editor.selectedRange = NSRange(location: 2, length: 3)
+        defer { panel.orderOut(nil); ordinary.orderOut(nil); source.orderOut(nil) }
+        panel.orderFrontRegardless()
+
+        var launched: [String] = []
+        launcher.onLaunchApp = { launched.append($0.id) }
+        actions.onAction = { _ in XCTFail("Underlying action must not fire") }
+        launcher.updateOption(pressed: true)
+        panel.setLauncherVisible(true, launcher: launcher, actions: actions, restoreTo: ordinary)
+        XCTAssertTrue(panel.contentView === launcher); XCTAssertNil(ordinary.contentView)
+        XCTAssertTrue(launcher.showsLauncher)
+        XCTAssertNotNil(launcher.launcherInnerArtwork)
+        launcher.beginPointer(at: RingGeometry.point(angle: .pi / 2, radius: 82))
+        launcher.endPointer(at: RingGeometry.point(angle: .pi / 2, radius: 82))
+        XCTAssertTrue(launched.isEmpty)
+        XCTAssertFalse(panel.isKeyWindow); XCTAssertFalse(launcher.acceptsFirstResponder)
+        XCTAssertFalse(launcher.needsPanelToBecomeKey); XCTAssertTrue(launcher.acceptsFirstMouse(for: nil))
+        XCTAssertTrue(source.firstResponder === editor)
+        XCTAssertEqual(editor.selectedRange, NSRange(location: 2, length: 3))
+        launcher.beginPointer(at: launcher.launcherPoint(1)); launcher.endPointer(at: launcher.launcherPoint(1))
+        XCTAssertEqual(launched, ["test.launch.1"])
+
+        // Releasing Option before mouse-up retracts the outer ring and cancels
+        // the click; it cannot fall through to either underlying primary ring.
+        launcher.beginPointer(at: launcher.launcherPoint(0))
+        launcher.updateOption(pressed: false)
+        panel.setLauncherVisible(false, launcher: launcher, actions: actions, restoreTo: ordinary)
+        launcher.endPointer(at: launcher.launcherPoint(0))
+        actions.end(at: RingGeometry.point(angle: .pi / 2, radius: 88))
+        XCTAssertEqual(launched, ["test.launch.1"])
+        XCTAssertTrue(panel.contentView === actions); XCTAssertTrue(ordinary.contentView === launcher)
+        XCTAssertNil(launcher.launcherInnerArtwork)
+        XCTAssertEqual(actions.page, 1); XCTAssertTrue(actions.ready)
+        XCTAssertEqual(actions.visible.map(\.id), ["action.6", "action.7"])
+        XCTAssertTrue(source.firstResponder === editor)
+        XCTAssertEqual(editor.selectedRange, NSRange(location: 2, length: 3))
+        XCTAssertEqual(launcher.bounds.size, CGSize(width: 480, height: 480))
+    }
+
+    @MainActor func testKeyboardLauncherEntryIsNotAPointerClick() async {
+        let launcher = view()
+        var pointerInteractions = 0, entries = 0
+        launcher.onPointerInteraction = { pointerInteractions += 1 }
+        launcher.onLauncherModeEntered = { entries += 1 }
+        launcher.updateOption(pressed: true)
+        XCTAssertEqual(entries, 1); XCTAssertEqual(pointerInteractions, 0)
+        launcher.updateOption(pressed: false)
+        XCTAssertTrue(launcher.toggleLauncherFromCenter(at: RingGeometry.center))
+        XCTAssertEqual(pointerInteractions, 1)
+    }
+
     @MainActor func testLaunchFailureDoesNotFallBackToAnotherApp() async {
         let app = records(1)[0].app
         let missing = ApplicationLauncher(resolve: { _ in nil }, open: { _, _, _ in XCTFail("Unresolved app") })

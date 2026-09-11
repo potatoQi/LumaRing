@@ -12,7 +12,9 @@ https://github.com/user-attachments/assets/a2290c78-61ed-4184-bb1c-fc4c29759209
 
 ---
 
-**A small ring for switching apps, windows, and tabs on macOS.**
+**A small ring to switch apps, windows, and tabs—and run app shortcuts on macOS.**
+
+Just **~2.9 MB** to download. Built natively in Swift for lightweight, responsive switching.
 
 Requires **macOS 14 or later**. Supports Apple Silicon and Intel.
 
@@ -22,15 +24,17 @@ Requires **macOS 14 or later**. Supports Apple Silicon and Intel.
 2. Open LumaRing, click its menu bar icon to open settings, and grant **Accessibility** access.
 3. Press **Option + Tab** or tap the trackpad with three or four fingers (choose in settings) to open the ring.
 4. Hover over an app to expand the secondary ring, then click an app, window, or tab to switch.
+5. To use app shortcuts, configure them in **Settings → Actions**. With the ring open, double-tap **left Option** to switch modes.
 
 Press the shortcut again or click outside the ring to dismiss it. If macOS blocks the first launch, allow LumaRing in **System Settings → Privacy & Security**.
 
 ## Key Feature
 
+- Custom app shortcuts, in your preferred order. Each app remembers its ring mode.
 - Switch apps in the primary ring, and windows or tabs in the secondary ring.
-- Open with **Option + Tab** or a three- or four-finger tap.
 - Hover over a window to preview it.
-- Hold **Option** or double-click the center to open your favorite apps.
+- Hold **Option** in either mode to open favorite apps; double-click the global ring’s center to keep them open.
 - Right-click to create a window, change the secondary mode, or edit a name and color.
 - Pinch with three fingers to minimize the current window (enable in settings).
 - Click **×** to close a window or tab in the secondary ring; drag an app icon out of the primary ring to quit.
+- System, light, or dark appearance.

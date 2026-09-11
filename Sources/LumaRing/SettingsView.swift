@@ -14,6 +14,8 @@ struct SettingsView: View {
     @State private var loginEnabled = SMAppService.mainApp.status == .enabled
     @State private var loginError: String?
     @State private var apps: [NSRunningApplication] = []
+    @State private var logStatus = AppLog.Status(bytes: 0, writeFailed: false, dropped: 0)
+    @State private var logBusy = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -30,6 +32,7 @@ struct SettingsView: View {
                 Text(L10n.text("通用", "General")).tag(0)
                 Text(L10n.text("权限与性能", "Permissions")).tag(1)
                 Text(L10n.text("应用管理", "App Management")).tag(2)
+                Text(L10n.text("快捷操作", "Actions")).tag(4)
                 Text(L10n.text("使用指南", "Guide")).tag(3)
             }.pickerStyle(.segmented).padding(.horizontal, 26).padding(.bottom, 18)
             Divider()
@@ -39,6 +42,7 @@ struct SettingsView: View {
                     case 0: general
                     case 1: permissions
                     case 2: launcherSettings; appFilter
+                    case 4: ActionSettingsView(profiles: $preferences.options.actionProfiles, invocation: preferences.options.shortcut)
                     default: guide
                     }
                 }.padding(26).frame(maxWidth: .infinity, alignment: .leading)
@@ -70,6 +74,13 @@ struct SettingsView: View {
                 }.pickerStyle(.segmented)
                 Text(L10n.text("更改立即生效。", "Changes apply immediately."))
                     .font(.caption).foregroundStyle(.secondary)
+            }
+            card(L10n.text("外观", "Appearance"), symbol: "circle.lefthalf.filled") {
+                Picker(L10n.text("主题", "Theme"), selection: $preferences.options.theme) {
+                    ForEach(AppTheme.allCases, id: \.self) { theme in
+                        Text(theme.title).tag(theme)
+                    }
+                }.pickerStyle(.segmented)
             }
             card(L10n.text("软件更新", "Software Updates"), symbol: "arrow.triangle.2.circlepath") {
                 HStack {
@@ -106,7 +117,7 @@ struct SettingsView: View {
                     Text(L10n.text("为避免与系统查词冲突，请在系统设置 → 触控板 → 光标与点按中，将“查找与数据检测器”改为单指用力点按或关闭。", "To avoid triggering Look Up, go to System Settings → Trackpad → Point & Click and set Look up & data detectors to Force Click with One Finger or Off.")).font(.caption).foregroundStyle(.secondary)
                 }
                 Toggle(L10n.text("三指捏合最小化窗口", "Three-finger pinch to minimize the window"), isOn: $preferences.options.threeFingerPinch)
-                Text(L10n.text("三指向内捏合后抬起，最小化当前窗口，无需打开轮盘。需要辅助功能权限，默认关闭。", "Pinch inward with three fingers and lift to minimize the current window, without opening the ring. Requires Accessibility permission; off by default.")).font(.caption).foregroundStyle(.secondary)
+                Text(L10n.text("三指向内捏合后抬起，最小化当前窗口；在 LumaRing 设置中则关闭设置窗口。需要辅助功能权限，默认关闭。", "Pinch inward with three fingers and lift to minimize the current window, or close LumaRing Settings. Requires Accessibility permission; off by default.")).font(.caption).foregroundStyle(.secondary)
                 if let message = trackpad.message {
                     HStack(alignment: .top) {
                         Text(message).font(.caption).foregroundStyle(.orange)
@@ -157,6 +168,7 @@ struct SettingsView: View {
                 Toggle(L10n.text("按应用名称排序", "Sort apps by name"), isOn: $preferences.options.sortByName)
                 Text(L10n.text("默认按名称排序；关闭后按最近使用排列。", "When off, apps are sorted by recent use.")).font(.caption).foregroundStyle(.secondary)
             }
+            logSettings
         }
     }
 
@@ -193,9 +205,48 @@ struct SettingsView: View {
         }
     }
 
+    private var logSettings: some View {
+        card(L10n.text("本地日志", "Local Logs"), symbol: "doc.text") {
+            Toggle(L10n.text("记录运行日志", "Record application logs"), isOn: $preferences.options.loggingEnabled)
+            Text(L10n.text("用于排查问题，仅保存在本机。不记录窗口标题、网址、自定义名称或文档内容。", "For troubleshooting, stored only on this Mac. Window titles, URLs, custom names and document contents are not recorded."))
+                .font(.caption).foregroundStyle(.secondary)
+            Text(L10n.text("最多保留 10 MB，超限自动删除最旧日志。关闭后停止记录，已有日志可手动清理。", "Keeps up to 10 MB and removes the oldest logs automatically. Turning logging off stops recording; existing logs can be cleared below."))
+                .font(.caption).foregroundStyle(.secondary)
+            HStack {
+                Text(L10n.text("已用 \(ByteCountFormatter.string(fromByteCount: Int64(logStatus.bytes), countStyle: .file))", "Used: \(ByteCountFormatter.string(fromByteCount: Int64(logStatus.bytes), countStyle: .file))"))
+                    .font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Button(L10n.text("打开日志文件夹", "Open Log Folder")) {
+                    logBusy = true
+                    Task { @MainActor in
+                        if let folder = await AppLog.shared.folder() { NSWorkspace.shared.open(folder) }
+                        logStatus = await AppLog.shared.status()
+                        logBusy = false
+                    }
+                }
+                Button(L10n.text("清理日志", "Clear Logs")) {
+                    logBusy = true
+                    Task { @MainActor in
+                        _ = await AppLog.shared.clear()
+                        logStatus = await AppLog.shared.status()
+                        logBusy = false
+                    }
+                }
+            }.disabled(logBusy)
+            if logStatus.writeFailed {
+                Text(L10n.text("日志文件暂时无法访问，请检查文件夹权限或剩余磁盘空间。", "Log files could not be accessed. Check folder permissions or available disk space."))
+                    .font(.caption).foregroundStyle(.orange)
+            }
+        }
+        .task { logStatus = await AppLog.shared.status() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            Task { @MainActor in logStatus = await AppLog.shared.status() }
+        }
+    }
+
     private var launcherSettings: some View {
         card(L10n.text("快捷启动", "Quick Launch"), symbol: "option") {
-            Text(L10n.text("未展开二级轮盘时，按住 Option 或双击轮盘中心显示这些应用。松开 Option 返回；双击展开后，再次双击中心返回。", "With no secondary ring showing, hold Option or double-click the center to reveal these apps. Release Option to return; after double-clicking, double-click the center again to return."))
+            Text(L10n.text("应用内轮盘中，或全局轮盘未展开二级轮盘时，按住 Option 显示这些应用，松开返回。全局轮盘也可双击中心展开或收起。", "In the action ring, or the global ring with no secondary ring open, hold Option for these apps and release to return. Double-clicking the global ring's center also toggles favorites."))
                 .font(.caption).foregroundStyle(.secondary)
             if preferences.options.launcherApps.isEmpty {
                 Text(L10n.text("添加常用应用，即使尚未运行也能启动。", "Add your favorite apps, including ones that are not running.")).foregroundStyle(.secondary)
@@ -292,7 +343,11 @@ struct SettingsView: View {
                 Text(L10n.text("在圆盘上滚动可翻应用页，在圆弧上滚动可翻窗口页；也可点击中心的左右箭头。", "Scroll over the ring to page through apps, or over the arc to page through windows. You can also click the center arrows."))
                 Text(L10n.text("窗口和标签页按名称排序；悬停窗口可查看预览。右键窗口或标签页可关闭，或通过“修改”设置名称和扇形颜色；留空名称恢复原标题。", "Windows and tabs are sorted by name. Hover over a window to preview it; right-click a window or tab to close it or edit its name and sector color. Leave the name empty to restore its original title."))
                 Text(L10n.text("右键应用可新建窗口、选择二级轮盘显示内容或退出应用；右键空白处打开设置。", "Right-click an app to create a window, choose secondary ring content, or quit. Right-click empty space for settings."))
-                Text(L10n.text("未展开二级轮盘时，按住 Option 显示快捷启动应用，松开恢复。在“应用管理”中添加应用。", "With the secondary ring closed, hold Option to show quick-launch apps; release to return. Add apps in App Management."))
+                Text(L10n.text("应用内轮盘中，或全局轮盘未展开二级轮盘时，按住 Option 显示常用应用，松开返回。在“应用管理”中添加应用。", "Hold Option for favorites in the action ring or the global ring with no secondary ring open; release to return. Add apps in App Management."))
+            }
+            card(L10n.text("当前应用的快捷操作", "Actions for the Current App"), symbol: "keyboard") {
+                Text(L10n.text("在“快捷操作”中为应用添加命名的快捷键，使用上下箭头调整顺序。", "In Actions, add named shortcuts for each app and use the arrows to reorder them."))
+                Text(L10n.text("轮盘打开时，双击左 Option 切换模式，再点击操作。操作模式不抢焦点；仅提供窗口信息的应用使用窗口级校验。", "With the ring open, double-tap left Option to switch modes, then click an action. Actions do not take focus; apps exposing only window focus use window-level verification."))
             }
             card(L10n.text("权限", "Permissions"), symbol: "lock") {
                 Text(L10n.text("窗口列表与切换需要辅助功能权限；窗口图片预览需要屏幕录制权限。", "Window lists and switching require Accessibility access. Image previews require Screen Recording access."))
@@ -336,6 +391,7 @@ struct ShortcutRecorder: NSViewRepresentable {
 }
 
 final class RecorderButton: NSButton {
+    var allowsUnmodified = false
     var onRecord: ((Shortcut) -> Void)?
     var recording = false
     var savedTitle = ""
@@ -362,13 +418,14 @@ final class RecorderButton: NSButton {
         guard recording else { super.keyDown(with: event); return }
         if event.keyCode == 53 { recording = false; title = savedTitle; return }
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        guard !flags.intersection([.command, .option, .control]).isEmpty else { title = L10n.text("请加 ⌃ / ⌥ / ⌘", "Include ⌃ / ⌥ / ⌘"); return }
+        guard allowsUnmodified || !flags.intersection([.command, .option, .control]).isEmpty else { title = L10n.text("请加 ⌃ / ⌥ / ⌘", "Include ⌃ / ⌥ / ⌘"); return }
         var modifiers: UInt32 = 0
         if flags.contains(.command) { modifiers |= UInt32(cmdKey) }
         if flags.contains(.option) { modifiers |= UInt32(optionKey) }
         if flags.contains(.control) { modifiers |= UInt32(controlKey) }
         if flags.contains(.shift) { modifiers |= UInt32(shiftKey) }
-        let special: [UInt16: String] = [49: "Space", 48: "Tab", 36: "Return", 123: "←", 124: "→", 125: "↓", 126: "↑"]
+        let special: [UInt16: String] = [49: "Space", 48: "Tab", 36: "Return", 51: "⌫", 117: "⌦", 123: "←", 124: "→", 125: "↓", 126: "↑",
+            122: "F1", 120: "F2", 99: "F3", 118: "F4", 96: "F5", 97: "F6", 98: "F7", 100: "F8", 101: "F9", 109: "F10", 103: "F11", 111: "F12"]
         let name = special[event.keyCode] ?? event.charactersIgnoringModifiers?.uppercased() ?? "Key \(event.keyCode)"
         recording = false
         let shortcut = Shortcut(keyCode: UInt32(event.keyCode), modifiers: modifiers, label: name)

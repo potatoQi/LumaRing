@@ -34,13 +34,13 @@ final class WindowStyleEditorTests: XCTestCase {
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
         let owner = WindowNames.Process(pid: 100, bundleID: "test", launched: Date(timeIntervalSinceReferenceDate: 100))
-        let store = WindowNames(defaults: defaults, process: { _ in owner })
+        let store = WindowNames(defaults: defaults, process: { _ in .running(owner) })
         func styled(_ store: WindowNames) -> WindowRecord {
-            guard case .ready(let records, _) = store.apply(.ready([record()]), pid: 100, isTab: false) else { fatalError() }
+            guard case .ready(let records, _) = store.apply(.ready([record()]), pid: 100) else { fatalError() }
             return records[0]
         }
         XCTAssertTrue(store.update(name: "", color: .violet, for: record(), expected: owner))
-        let reloaded = WindowNames(defaults: defaults, process: { _ in owner })
+        let reloaded = WindowNames(defaults: defaults, process: { _ in .running(owner) })
         XCTAssertNil(styled(reloaded).customName)
         XCTAssertEqual(styled(reloaded).customColor, .violet)
         reloaded.update(name: "", color: nil, for: record())

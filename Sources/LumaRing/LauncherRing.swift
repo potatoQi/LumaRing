@@ -24,7 +24,9 @@ extension RingView {
     }
     private func enterLauncherMode(pinned: Bool) {
         centerClickWork?.cancel(); centerClickWork = nil
-        onPointerInteraction?()
+        // A keyboard hold is not a pointer interaction: keep the double-tap
+        // recognizer independent of keyboard-driven launcher presentation.
+        if pinned { onPointerInteraction?() }
         onLauncherModeEntered?()
         clearSelection()
         launcherPinned = pinned
@@ -86,16 +88,18 @@ extension RingView {
         let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
         let center = RingGeometry.center
         let disk = NSBezierPath(ovalIn: NSRect(x: center.x - 118, y: center.y - 118, width: 236, height: 236))
-        (dark ? NSColor.darkGray : NSColor.lightGray).withAlphaComponent(0.85).setFill(); disk.fill()
+        launcherInnerArtwork?(launcherPages > 1)
+        (dark ? NSColor.darkGray : NSColor.lightGray)
+            .withAlphaComponent(launcherInnerArtwork == nil ? 0.85 : 0.30).setFill(); disk.fill()
         let paragraph = NSMutableParagraphStyle(); paragraph.alignment = .center; paragraph.lineBreakMode = .byTruncatingTail
         func text(_ value: String, rect: NSRect, size: CGFloat, color: NSColor = .labelColor) {
             (value as NSString).draw(in: rect, withAttributes: [.font: NSFont.systemFont(ofSize: size), .foregroundColor: color, .paragraphStyle: paragraph])
         }
-        let title = visibleLauncherApps.first { $0.app.id == hoveredLauncher }?.app.name ?? L10n.text("快捷启动", "Quick Launch")
-        text(title, rect: NSRect(x: 192, y: 242, width: 96, height: 26), size: 12)
-        text(launcherApps.isEmpty ? L10n.text("在设置中添加应用", "Add apps in Settings") : (launcherPinned ? L10n.text("双击中心返回", "Double-click to return") : L10n.text("松开 ⌥ 返回", "Release ⌥ to return")),
-             rect: NSRect(x: 190, y: 222, width: 100, height: 16), size: 9, color: .secondaryLabelColor)
-        if launcherPages > 1 { text("‹   \(launcherPage + 1)/\(launcherPages)   ›", rect: NSRect(x: 215, y: 207, width: 50, height: 15), size: 10) }
+        let title = visibleLauncherApps.first { $0.app.id == hoveredLauncher }?.app.name ?? L10n.text("常用应用", "Favorites")
+        if launcherInnerArtwork == nil { RingCenterLabel.draw(title: title,
+            detail: launcherApps.isEmpty ? L10n.text("在设置中添加应用", "Add apps in Settings") : (launcherPinned ? L10n.text("双击中心返回", "Double-click") : L10n.text("松开 ⌥ 返回", "Release ⌥")),
+            paging: launcherPages > 1) }
+        if launcherPages > 1 { RingCenterLabel.page("‹  \(launcherPage + 1)/\(launcherPages)  ›", in: NSRect(x: 215, y: 207, width: 50, height: 15)) }
         for (index, record) in visibleLauncherApps.enumerated() {
             if record.app.id == hoveredLauncher, let context = NSGraphicsContext.current?.cgContext {
                 NSGraphicsContext.saveGraphicsState()

@@ -30,6 +30,11 @@ enum TrackpadTap: Int, Codable, CaseIterable {
 }
 
 struct Options: Codable {
+    var theme = AppTheme.system
+    var loggingEnabled = true
+    var actionProfiles: [ActionProfile] = []
+    private(set) var actionRingApps: Set<String> = []
+
     var shortcut = Shortcut()
     var holdToSelect = false
     var trackpadTap = TrackpadTap.disabled
@@ -49,13 +54,29 @@ struct Options: Codable {
         BrowserAdapters.supports(bundleID) ? (appContentModes[bundleID] ?? .windows) : .windows
     }
 
+    func usesActionRing(for bundleID: String?) -> Bool {
+        guard let bundleID else { return false }
+        return actionRingApps.contains(bundleID)
+    }
+
+    mutating func rememberActionRing(_ enabled: Bool, for bundleID: String?) {
+        guard let bundleID, !bundleID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        if enabled { actionRingApps.insert(bundleID) }
+        else { actionRingApps.remove(bundleID) }
+    }
+
     init() {}
     private enum CodingKeys: String, CodingKey {
-        case shortcut, holdToSelect, trackpadTap, threeFingerPinch, ringSize, previews, previewWidth, includeMinimized, sortByName, excludedBundleIDs, appPageSize, windowPageSize, appContentModes, launcherApps
+        case theme, loggingEnabled, actionProfiles, actionRingApps, shortcut, holdToSelect, trackpadTap, threeFingerPinch, ringSize, previews, previewWidth, includeMinimized, sortByName, excludedBundleIDs, appPageSize, windowPageSize, appContentModes, launcherApps
     }
     private enum LegacyCodingKeys: String, CodingKey { case fourFingerTap }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        theme = AppTheme(rawValue: (try? c.decode(String.self, forKey: .theme)) ?? "") ?? .system
+        loggingEnabled = (try? c.decode(Bool.self, forKey: .loggingEnabled)) ?? true
+        actionProfiles = ActionProfile.normalized((try? c.decode([ActionProfile].self, forKey: .actionProfiles)) ?? [])
+        actionRingApps = Set(((try? c.decode([String].self, forKey: .actionRingApps)) ?? [])
+            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
         shortcut = try c.decodeIfPresent(Shortcut.self, forKey: .shortcut) ?? Shortcut()
         holdToSelect = try c.decodeIfPresent(Bool.self, forKey: .holdToSelect) ?? false
         if c.contains(.trackpadTap) {

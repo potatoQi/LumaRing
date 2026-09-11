@@ -23,6 +23,7 @@ import LumaRingCore
     var showsLauncher = false
     var optionPressed = false
     var launcherPinned = false
+    var launcherInnerArtwork: ((Bool) -> Void)?
     var centerClickWork: DispatchWorkItem?
     private(set) var invocationClickDeadline: TimeInterval = 0
     var isContextMenuOpen = false
@@ -155,7 +156,11 @@ import LumaRingCore
     private var tracking: NSTrackingArea?
     private var scrollTime = 0.0
 
-    override var acceptsFirstResponder: Bool { true }
+    override var acceptsFirstResponder: Bool { !(window is ActionPanel) }
+    override var needsPanelToBecomeKey: Bool { window is ActionPanel ? false : super.needsPanelToBecomeKey }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        window is ActionPanel || super.acceptsFirstMouse(for: event)
+    }
     override var isOpaque: Bool { false }
     override func hitTest(_ point: NSPoint) -> NSView? {
         bounds.contains(convert(point, from: superview)) ? self : nil
@@ -597,6 +602,7 @@ import LumaRingCore
     private var dark: Bool { effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua }
 
     private func drawDisk() {
+        if showsLauncher, launcherInnerArtwork != nil { drawLauncher(); return }
         if !isDraggingApp, let pid = highlightedApp, let index = visibleApps.firstIndex(where: { $0.pid == pid }),
            let context = NSGraphicsContext.current?.cgContext {
             NSGraphicsContext.saveGraphicsState()
@@ -686,21 +692,21 @@ import LumaRingCore
     private func drawCenter() {
         let c = RingGeometry.center
         if let app = draggedApp {
-            drawText(app.name, rect: NSRect(x: c.x - 49, y: c.y + 2, width: 98, height: 28), font: .systemFont(ofSize: 12, weight: .medium), color: ink, lines: 2)
-            drawText(dragWillQuit ? L10n.text("松开退出应用", "Release to quit") : L10n.text("拖出轮盘退出", "Drag outside to quit"), rect: NSRect(x: c.x - 50, y: c.y - 24, width: 100, height: 28), font: .systemFont(ofSize: 10), color: dragWillQuit ? .systemRed : muted, lines: 2)
+            RingCenterLabel.draw(title: app.name,
+                detail: dragWillQuit ? L10n.text("松开退出应用", "Release to quit") : L10n.text("拖出轮盘退出", "Drag out to quit"),
+                titleColor: ink, detailColor: dragWillQuit ? .systemRed : muted)
             return
         }
         let app = apps.first { $0.pid == hoveredApp } ?? currentApp
         let name = app?.name ?? (apps.isEmpty ? L10n.text("暂无应用", "No apps") : L10n.text("应用", "Apps"))
         let paging = (showsWindowArc && windowPages > 1) || appPages > 1
-        drawText(name, rect: NSRect(x: c.x - 30, y: c.y, width: 60, height: 26), font: .systemFont(ofSize: 11, weight: .medium), color: ink, lines: 2)
-        let subtitle = loading ? "" : (app == nil ? L10n.text("移出中心选择", "Move to select") : message)
-        drawText(subtitle, rect: NSRect(x: c.x - 31, y: c.y - (paging ? 14 : 21), width: 62, height: paging ? 12 : 20), font: .systemFont(ofSize: 8), color: muted, lines: paging ? 1 : 2)
+        RingCenterLabel.draw(title: name, detail: app == nil ? RingCenterLabel.modeHint : (loading ? "" : message),
+                             paging: paging, titleColor: ink, detailColor: muted)
         if paging {
             drawSymbol("chevron.left", rect: NSRect(x: c.x - 20, y: c.y - 29, width: 5, height: 8), color: muted)
             drawSymbol("chevron.right", rect: NSRect(x: c.x + 15, y: c.y - 29, width: 5, height: 8), color: muted)
             let page = showsWindowArc && windowPages > 1 ? "\(windowPage + 1)/\(windowPages)" : "\(appPage + 1)/\(appPages)"
-            drawText(page, rect: NSRect(x: c.x - 14, y: c.y - 31, width: 28, height: 12), font: .systemFont(ofSize: 8), color: muted)
+            RingCenterLabel.page(page, in: NSRect(x: c.x - 14, y: c.y - 32, width: 28, height: 14), color: muted)
         }
     }
 

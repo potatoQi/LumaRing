@@ -284,9 +284,11 @@ final class BrowserEvents {
                 self.connecting.remove(identifier)
                 switch result {
                 case .success(let count):
+                    AppLog.shared.record("connected", category: .browser, fields: ["pid": String(pid), "tabCount": String(count)])
                     self.connected.insert(identifier)
                     self.messages[identifier] = L10n.text("已连接 · \(count) 个标签页", "Connected · \(count) tabs")
                 case .failure(let error):
+                    AppLog.shared.record("connection_failed", category: .browser, level: .warning, fields: AppLog.errorFields(error))
                     self.connected.remove(identifier)
                     self.messages[identifier] = error.localizedDescription
                 }
@@ -306,7 +308,10 @@ final class BrowserEvents {
                     WindowRecord(id: "tab:\(pid):\(tab.id)", pid: pid, title: tab.title, minimized: tab.minimized,
                                  fullscreen: false, frame: .zero, element: AXUIElementCreateApplication(pid), tab: tab)
                 }, limited: snapshot.limited)
-            } catch { result = .unavailable(error.localizedDescription) }
+            } catch {
+                AppLog.shared.record("query_failed", category: .browser, level: .warning, fields: AppLog.errorFields(error))
+                result = .unavailable(error.localizedDescription)
+            }
             DispatchQueue.main.async { if !token.isCancelled { completion(result) } }
         }
     }
@@ -331,9 +336,13 @@ final class BrowserEvents {
             }
             DispatchQueue.main.async {
                 switch result {
-                case .failure: completion(result)
+                case .failure(let error):
+                    AppLog.shared.record("activation_failed", category: .browser, level: .warning, fields: AppLog.errorFields(error))
+                    completion(result)
                 case .success:
                     ApplicationActivator().activate(pid: pid) { success in
+                        AppLog.shared.record("activate_result", category: .browser, level: success ? .info : .warning,
+                                             fields: ["pid": String(pid), "item": AppLog.token(tab.id), "success": String(success)])
                         completion(success ? .success(()) : .failure(BrowserError.closed))
                     }
                 }
@@ -347,6 +356,13 @@ final class BrowserEvents {
                       BrowserAdapters.supports(tab.bundleID),
                       BrowserEvents.permission(pid: pid, ask: false) == noErr else { throw BrowserError.permission }
                 try BrowserEvents(pid: pid, budget: 3).close(tab)
+            }
+            switch result {
+            case .success:
+                AppLog.shared.record("close_request_accepted", category: .browser,
+                                     fields: ["pid": String(pid), "item": AppLog.token(tab.id)])
+            case .failure(let error):
+                AppLog.shared.record("close_request_failed", category: .browser, level: .warning, fields: AppLog.errorFields(error))
             }
             DispatchQueue.main.async { completion(result) }
         }

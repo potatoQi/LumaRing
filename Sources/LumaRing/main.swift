@@ -4,7 +4,7 @@ import SwiftUI
 
 @MainActor final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem!
-    private var settingsWindow: NSWindow?
+    private var settingsWindow: SettingsWindow?
     private let catalog = ApplicationCatalog()
     private lazy var ring = RingController(catalog: catalog)
     private let hotKey = HotKey()
@@ -20,6 +20,13 @@ import SwiftUI
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        Preferences.shared.$options.map(\.loggingEnabled).removeDuplicates()
+            .sink { AppLog.shared.setEnabled($0) }.store(in: &subscriptions)
+        AppLog.shared.record("started", category: .app, fields: ["version": UpdateService.version,
+            "pid": String(getpid()), "os": ProcessInfo.processInfo.operatingSystemVersionString])
+        Preferences.shared.options.theme.apply()
+        Preferences.shared.$options.map(\.theme).removeDuplicates().dropFirst()
+            .receive(on: RunLoop.main).sink { $0.apply() }.store(in: &subscriptions)
         if let iconURL = Bundle.main.url(forResource: "LumaRingIcon-1.3", withExtension: "icns"),
            let icon = NSImage(contentsOf: iconURL) { NSApp.applicationIconImage = icon }
         UpdateService.shared.start()
@@ -37,9 +44,31 @@ import SwiftUI
             guard Preferences.shared.options.trackpadTap != .disabled else { return }
             self?.ring.toggleFromTrackpad()
         }
-        trackpad.onPinchBegin = { [weak self] in self?.pinchMinimizer.begin() }
-        trackpad.onPinchComplete = { [weak self] in self?.pinchMinimizer.complete() }
-        trackpad.onPinchCancel = { [weak self] in self?.pinchMinimizer.cancel() }
+        trackpad.onPinchBegin = { [weak self] in
+            guard let self else { return }
+            self.settingsWindow?.cancelPinch()
+            self.pinchMinimizer.cancel()
+            guard Preferences.shared.options.threeFingerPinch, !self.ring.isVisible else { return }
+            if let window = self.settingsWindow, window.canCloseWithPinch {
+                window.beginPinch()
+            } else {
+                self.pinchMinimizer.begin()
+            }
+        }
+        trackpad.onPinchComplete = { [weak self] in
+            guard let self else { return }
+            if Preferences.shared.options.threeFingerPinch && !self.ring.isVisible {
+                self.settingsWindow?.completePinch()
+                self.pinchMinimizer.complete()
+            } else {
+                self.settingsWindow?.cancelPinch()
+                self.pinchMinimizer.cancel()
+            }
+        }
+        trackpad.onPinchCancel = { [weak self] in
+            self?.settingsWindow?.cancelPinch()
+            self?.pinchMinimizer.cancel()
+        }
         ring.onSettings = { [weak self] in self?.showSettings() }
         ring.onError = { [weak self] text in self?.showError(text) }
         catalog.onChange = { [weak self] in self?.ring.applicationsChanged() }
@@ -57,12 +86,16 @@ import SwiftUI
             // Options publishes before SwiftUI finishes updating its binding.
             DispatchQueue.main.async { self?.trackpad.configure(gesture: gestures.tap, pinch: gestures.pinch) }
         }.store(in: &subscriptions)
+        tokens.append(NotificationCenter.default.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.settingsWindow?.cancelPinch() }
+        })
         let sleepEvents: [(Notification.Name, TrackpadGesture.Suspension)] = [
             (NSWorkspace.willSleepNotification, .sleep), (NSWorkspace.screensDidSleepNotification, .display),
             (NSWorkspace.sessionDidResignActiveNotification, .session)
         ]
         for (name, reason) in sleepEvents {
             tokens.append(NSWorkspace.shared.notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                AppLog.shared.record("suspend", category: .lifecycle, fields: ["notification": name.rawValue])
                 DispatchQueue.main.async { self?.ring.dismiss(); self?.trackpad.suspend(reason) }
             })
         }
@@ -72,11 +105,13 @@ import SwiftUI
         ]
         for (name, reason) in wakeEvents {
             tokens.append(NSWorkspace.shared.notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                AppLog.shared.record("resume", category: .lifecycle, fields: ["notification": name.rawValue])
                 DispatchQueue.main.async { self?.trackpad.resume(reason) }
             })
         }
         for (name, locked) in [("com.apple.screenIsLocked", true), ("com.apple.screenIsUnlocked", false)] {
             tokens.append(DistributedNotificationCenter.default().addObserver(forName: Notification.Name(name), object: nil, queue: .main) { [weak self] _ in
+                AppLog.shared.record("screen_lock", category: .lifecycle, fields: ["locked": String(locked)])
                 MainActor.assumeIsolated {
                     if locked { self?.ring.dismiss(); self?.trackpad.suspend(.screenLock) }
                     else { self?.trackpad.resume(.screenLock) }
@@ -107,7 +142,8 @@ import SwiftUI
         mainMenu.addItem(applicationItem)
         let windowItem = NSMenuItem(title: L10n.text("窗口", "Windows"), action: nil, keyEquivalent: "")
         let windowMenu = NSMenu(title: L10n.text("窗口", "Windows"))
-        windowMenu.addItem(withTitle: L10n.text("关闭", "Close"), action: #selector(NSWindow.performClose(_:)), keyEquivalent: "")
+        windowMenu.addItem(withTitle: L10n.text("关闭", "Close"), action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+            .keyEquivalentModifierMask = [.command]
         windowItem.submenu = windowMenu; mainMenu.addItem(windowItem)
         NSApp.mainMenu = mainMenu
     }
@@ -149,7 +185,7 @@ import SwiftUI
         Preferences.shared.refreshPermissions()
         if settingsWindow == nil {
             let host = NSHostingController(rootView: SettingsView())
-            let window = NSWindow(contentViewController: host)
+            let window = SettingsWindow(contentViewController: host)
             window.title = L10n.text("LumaRing 设置", "LumaRing Settings")
             window.styleMask = [.titled, .closable, .miniaturizable]
             window.setContentSize(NSSize(width: 680, height: 690))
@@ -176,7 +212,11 @@ import SwiftUI
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { showSettings(); return true }
-    func applicationWillTerminate(_ notification: Notification) { trackpad.shutdown(); ring.dismiss() }
+    func applicationWillTerminate(_ notification: Notification) {
+        trackpad.shutdown(); ring.dismiss()
+        AppLog.shared.record("stopping", category: .app)
+        AppLog.shared.finish()
+    }
 }
 
 if CommandLine.arguments.contains("--diagnostics") {

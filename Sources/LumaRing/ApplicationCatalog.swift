@@ -20,6 +20,9 @@ final class ApplicationCatalog {
             tokens.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
                 guard let self else { return }
                 if let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication {
+                    AppLog.shared.record("application_changed", category: .lifecycle, fields: [
+                        "notification": name.rawValue, "pid": String(app.processIdentifier), "bundle": app.bundleIdentifier ?? "unknown"
+                    ])
                     if name == NSWorkspace.didActivateApplicationNotification, app.processIdentifier != getpid() {
                         self.recent.removeAll { $0 == app.processIdentifier }
                         self.recent.insert(app.processIdentifier, at: 0)

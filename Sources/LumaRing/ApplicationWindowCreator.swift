@@ -119,10 +119,15 @@ final class ApplicationWindowCreator {
     }
 
     func perform(_ command: Command, completion: @escaping (Bool) -> Void) {
+        let complete: (Bool) -> Void = { success in
+            AppLog.shared.record("create_result", category: .windows, level: success ? .info : .warning,
+                                 fields: ["pid": String(command.pid), "success": String(success)])
+            completion(success)
+        }
         queue.async {
             guard let app = NSRunningApplication(processIdentifier: command.pid), !app.isTerminated,
                   app.bundleIdentifier == command.bundleID else {
-                DispatchQueue.main.async { completion(false) }; return
+                DispatchQueue.main.async { complete(false) }; return
             }
             if command.strategy == .browser, BrowserAdapters.supports(command.bundleID),
                BrowserEvents.permission(pid: command.pid, ask: false) == noErr {
@@ -131,7 +136,7 @@ final class ApplicationWindowCreator {
                 let success = (try? BrowserEvents(pid: command.pid, budget: 2).newWindow()) != nil
                 DispatchQueue.main.async {
                     if success { _ = app.activate(options: []) }
-                    completion(success)
+                    complete(success)
                 }
                 return
             }
@@ -139,11 +144,11 @@ final class ApplicationWindowCreator {
             // route. Activate only after the user's explicit New Window action,
             // once LumaRing's context menu has finished tracking.
             DispatchQueue.main.async {
-                guard AXIsProcessTrusted(), app.activate(options: []) else { completion(false); return }
+                guard AXIsProcessTrusted(), app.activate(options: []) else { complete(false); return }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.10) {
                     self.queue.async {
                         let success = Self.performMenu(command)
-                        DispatchQueue.main.async { completion(success) }
+                        DispatchQueue.main.async { complete(success) }
                     }
                 }
             }

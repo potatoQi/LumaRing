@@ -32,7 +32,10 @@ final class WindowService {
     func load(pid: pid_t, completion: @escaping (WindowResult) -> Void) {
         dispatchPrecondition(condition: .onQueue(.main))
         work?.cancel()
-        guard AXIsProcessTrusted() else { completion(.permissionRequired); return }
+        guard AXIsProcessTrusted() else {
+            AppLog.shared.record("permission_denied", category: .windows, level: .warning)
+            completion(.permissionRequired); return
+        }
         if let entry = cache[pid], Date().timeIntervalSince(entry.0) < 1.0 {
             completion(entry.1); return
         }
@@ -64,6 +67,8 @@ final class WindowService {
         var raw: CFTypeRef?
         let error = AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &raw)
         guard error == .success else {
+            AppLog.shared.record("query_failed", category: .windows, level: .warning,
+                                 fields: ["pid": String(pid), "axCode": String(error.rawValue)])
             if error == .apiDisabled { return .permissionRequired }
             return .unavailable(error == .cannotComplete ? L10n.text("应用暂时未响应，请稍后重试", "The app is not responding. Try again shortly.") : L10n.text("此应用暂未提供可切换窗口", "This app has no available windows"))
         }
@@ -138,6 +143,8 @@ final class WindowService {
         // the target application/window; any save prompt belongs to that app.
         queue.async {
             let success = Self.requestClose(window)
+            AppLog.shared.record("close_request_result", category: .windows, level: success ? .info : .warning,
+                                 fields: ["pid": String(window.pid), "item": AppLog.token(window.id), "accepted": String(success)])
             DispatchQueue.main.async { completion(success) }
         }
     }
@@ -146,7 +153,10 @@ final class WindowService {
         work?.cancel()
         // Reopen immediately, before potentially slow third-party accessibility messages.
         ApplicationActivator().activate(pid: window.pid) { activated in
-            guard activated else { completion(false); return }
+            guard activated else {
+                AppLog.shared.record("activation_failed", category: .windows, level: .warning, fields: ["pid": String(window.pid)])
+                completion(false); return
+            }
             self.queue.async {
                 AXUIElementSetMessagingTimeout(window.element, 0.25)
                 if window.minimized {
@@ -155,6 +165,8 @@ final class WindowService {
                 AXUIElementSetAttributeValue(window.element, kAXMainAttribute as CFString, kCFBooleanTrue)
                 // Reopen can choose the old key window; select the requested window afterwards.
                 let raised = AXUIElementPerformAction(window.element, kAXRaiseAction as CFString)
+                AppLog.shared.record("activate_result", category: .windows, level: raised == .success ? .info : .warning,
+                                     fields: ["pid": String(window.pid), "item": AppLog.token(window.id), "axCode": String(raised.rawValue)])
                 DispatchQueue.main.async { completion(raised == .success || allowAppFallback) }
             }
         }

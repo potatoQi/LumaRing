@@ -20,6 +20,8 @@ import AppKit
         guard target.pid > 0, target.pid != getpid(), inFlight.insert(target).inserted else { return false }
         queue.async { [weak self, request] in
             let outcome = request(target)
+            AppLog.shared.record("quit_request_result", category: .app,
+                                 fields: ["pid": String(target.pid), "result": String(describing: outcome)])
             DispatchQueue.main.async { [weak self] in
                 self?.inFlight.remove(target)
                 completion(outcome)

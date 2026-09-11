@@ -1,6 +1,6 @@
 import AppKit
+import Carbon
 import LumaRingCore
-import os
 
 final class RingPanel: NSPanel {
     override var canBecomeKey: Bool { true }
@@ -25,13 +25,21 @@ final class RingPanel: NSPanel {
     private var presentationID = UUID()
     private var closeRequests: Set<String> = []
     private var panel: RingPanel?
+    private var actionPanel: ActionPanel?
+    let actionView = ActionRingView(frame: NSRect(x: 0, y: 0, width: RingGeometry.canvas, height: RingGeometry.canvas))
+    private let actionExecutor = ActionExecutor()
+    private var actionMode = false
+    private var originApp: NSRunningApplication?
+    private var keyboardMonitor: RingKeyboardMonitor?
+    private var optionTap = LeftOptionDoubleTap()
+    private var optionHold: DispatchWorkItem?
+    private var switchingMode = false
     private var clickMonitor: Any?
     private var localClickMonitor: Any?
     private var gate = RequestGate()
-    private let logger = Logger(subsystem: "local.lumaring.app", category: "performance")
     var onSettings: (() -> Void)?
     var onError: ((String) -> Void)?
-    var isVisible: Bool { panel?.isVisible == true }
+    var isVisible: Bool { panel?.isVisible == true || actionPanel?.isVisible == true }
     private var closing = false
     private var renameTicket: UUID?
     private(set) var styleEditor: WindowStyleEditor?
@@ -39,11 +47,25 @@ final class RingPanel: NSPanel {
     init(catalog: ApplicationCatalog) {
         self.catalog = catalog
         super.init()
+        actionView.onClose = { [weak self] in self?.dismiss() }
+        actionView.onSettings = { [weak self] in self?.dismiss(); self?.onSettings?() }
+        actionView.onAction = { [weak self] action in
+            guard let self, self.actionMode, self.isVisible, !self.view.showsLauncher, let target = self.actionExecutor.focus else { return }
+            let invocation = Preferences.shared.options.shortcut
+            self.dismiss()
+            self.actionExecutor.execute(action, target: target, invocation: invocation) { [weak self] success in
+                if !success { self?.onError?(L10n.text("原输入焦点无法确认，或修饰键尚未松开，未发送快捷键。请松开按键并回到原窗口后重试。", "The original focus could not be verified, or modifier keys are still held. No shortcut was sent. Release the keys, return to the window and retry.")) }
+            }
+        }
         view.onClose = { [weak self] in self?.dismiss() }
         view.onSettings = { [weak self] in self?.dismiss(); self?.onSettings?() }
         view.onVisibleAppsChanged = { [weak self] in self?.refreshCounts() }
         // Once the mouse takes over, releasing a held shortcut must not also switch.
-        view.onPointerInteraction = { [weak self] in self?.openedByShortcut = false }
+        view.onPointerInteraction = { [weak self] in
+            self?.openedByShortcut = false
+            self?.optionTap.reset(); self?.optionHold?.cancel(); self?.optionHold = nil
+        }
+        actionView.onPointerInteraction = view.onPointerInteraction
         view.onSelectApp = { [weak self] app in self?.loadSecondary(for: app) }
         view.onActivateApp = { [weak self] app in
             guard let self else { return }
@@ -86,6 +108,7 @@ final class RingPanel: NSPanel {
         }
         view.onLauncherModeEntered = { [weak self] in
             guard let self else { return }
+            self.openedByShortcut = false
             self.gate.invalidate()
             self.windows.cancelAndClear(); self.tabs.cancelAndClear()
             self.previews.cancelAndClear(); self.previewCard.dismiss()
@@ -153,7 +176,7 @@ final class RingPanel: NSPanel {
                 }
                 return
             }
-            let named = self.names.apply(result, pid: app.pid, isTab: mode == .tabs)
+            let named = self.names.apply(result, pid: app.pid)
             if closedID != nil, case .unavailable(let message) = named {
                 self.view.message = message; self.view.refresh()
             } else { self.view.setWindows(named, for: app.pid) }
@@ -237,7 +260,7 @@ final class RingPanel: NSPanel {
 
     func ownsInteractionWindow(_ window: NSWindow?) -> Bool {
         guard let window else { return false }
-        return window === panel || window === styleEditor?.window
+        return window === panel || window === actionPanel || window === styleEditor?.window
     }
 
     private func presentPreview(_ record: WindowRecord, image: NSImage?, failure: PreviewFailure? = nil) {
@@ -248,7 +271,7 @@ final class RingPanel: NSPanel {
     }
 
     private func refreshCounts() {
-        guard isVisible else { return }
+        guard isVisible, !actionMode else { return }
         counts.refresh(apps: view.visibleApps, options: view.options) { [weak self] pid, count in
             guard let self, self.isVisible else { return }
             self.view.setItemCount(count, for: pid)
@@ -258,7 +281,7 @@ final class RingPanel: NSPanel {
     func pressShortcut() {
         if Preferences.shared.options.holdToSelect {
             if !isVisible { show() }
-            openedByShortcut = true
+            openedByShortcut = !actionMode
         } else { toggle() }
     }
 
@@ -270,6 +293,10 @@ final class RingPanel: NSPanel {
 
     func show(fromTrackpad: Bool = false) {
         if isVisible { return }
+        actionExecutor.cancel()
+        originApp = NSWorkspace.shared.frontmostApplication
+        actionMode = Preferences.shared.options.usesActionRing(for: originApp?.bundleIdentifier)
+        optionTap.reset()
         presentationID = UUID()
         closing = false
         openedByShortcut = false
@@ -302,10 +329,28 @@ final class RingPanel: NSPanel {
         // The Option already held by the invocation shortcut must be released first.
         view.optionPressed = NSEvent.modifierFlags.contains(.option)
         panel.alphaValue = 1
-        panel.makeKeyAndOrderFront(nil)
-        panel.makeFirstResponder(view)
-        view.refresh()
-        refreshCounts()
+        // Capture the original AX focus before the app ring takes key focus.
+        // The surface is already visible; slow AX providers do not block rendering.
+        if actionMode { presentActions(frame: frame) }
+        else { panel.orderFrontRegardless(); view.refresh(); refreshCounts() }
+        let session = presentationID
+        if let originApp, originApp.processIdentifier != ProcessInfo.processInfo.processIdentifier,
+           options.actionProfiles.contains(where: { $0.id == originApp.bundleIdentifier && $0.actions.contains(where: { $0.configured }) }) {
+            actionExecutor.prepare(pid: originApp.processIdentifier) { [weak self] available in
+                guard let self, self.isVisible, self.presentationID == session else { return }
+                guard NSWorkspace.shared.frontmostApplication?.processIdentifier == self.originApp?.processIdentifier else { self.dismiss(); return }
+                self.actionView.ready = available
+                self.actionView.message = self.actionMessage(available: available)
+                self.actionView.refresh()
+                if !self.actionMode, !self.view.isContextMenuOpen, !self.view.isEditingName {
+                    self.panel?.makeKey(); self.panel?.makeFirstResponder(self.view)
+                }
+            }
+        } else {
+            actionView.ready = false; actionView.message = actionMessage(available: false); actionView.refresh()
+            if !actionMode { panel.makeKey(); panel.makeFirstResponder(view) }
+        }
+        keyboardMonitor = RingKeyboardMonitor { [weak self] event in self?.handleKeyboard(event) ?? false }
         // Mouse monitors exist only while visible; the trackpad listener is separately opt-in.
         clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
             DispatchQueue.main.async {
@@ -321,8 +366,8 @@ final class RingPanel: NSPanel {
             return event
         }
         let elapsed = (ProcessInfo.processInfo.systemUptime - start) * 1000
-        logger.debug("Ring presentation scheduled in \(elapsed, privacy: .public) ms")
-        if !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+        AppLog.shared.record("presentation_scheduled", category: .ring, level: .debug, fields: ["milliseconds": String(elapsed)])
+        if !actionMode, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
             panel.alphaValue = 0
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = 0.09
@@ -332,14 +377,21 @@ final class RingPanel: NSPanel {
     }
 
     func dismiss() {
+        guard !switchingMode else { return }
+        actionExecutor.cancel()
         guard isVisible, !closing else { return }
+        optionHold?.cancel(); optionHold = nil; optionTap.reset()
+        keyboardMonitor?.stop(); keyboardMonitor = nil
         presentationID = UUID()
         closing = true
         renameTicket = nil
         styleEditor?.dismiss(); styleEditor = nil
         view.isEditingName = false; view.afterContextMenu = nil
         // Remove the visible surface before clearing snapshots or dispatching IPC.
-        panel?.orderOut(nil)
+        panel?.orderOut(nil); actionPanel?.orderOut(nil)
+        setActionLauncherSurface(false)
+        actionView.actions = []; actionView.ready = false; actionView.reset()
+        originApp = nil
         gate.invalidate()
         openedByShortcut = false
         previewCard.dismiss()
@@ -356,16 +408,144 @@ final class RingPanel: NSPanel {
     }
 
     func releaseShortcut() {
-        if isVisible && openedByShortcut && Preferences.shared.options.holdToSelect {
+        if !actionMode && isVisible && openedByShortcut && Preferences.shared.options.holdToSelect {
             openedByShortcut = false
             view.activateHovered()
         }
     }
 
-    func windowDidResignKey(_ notification: Notification) { if !view.isContextMenuOpen && !view.isEditingName { dismiss() } }
+    func windowDidResignKey(_ notification: Notification) {
+        if !switchingMode && !actionMode && !view.isContextMenuOpen && !view.isEditingName { dismiss() }
+    }
+
+    private func actionMessage(available: Bool) -> String {
+        if actionView.actions.isEmpty { return L10n.text("点击此处配置", "Click to configure") }
+        return available ? "" : L10n.text("无法确认焦点", "No input focus")
+    }
+
+    private func presentActions(frame: NSRect) {
+        if actionPanel == nil {
+            let created = ActionPanel(contentRect: frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+            created.level = .popUpMenu
+            created.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle, .stationary]
+            created.isOpaque = false; created.backgroundColor = .clear; created.hasShadow = false
+            created.hidesOnDeactivate = false; created.isFloatingPanel = true; created.becomesKeyOnlyIfNeeded = true
+            created.isReleasedWhenClosed = false; created.acceptsMouseMovedEvents = true; created.animationBehavior = .none
+            created.contentView = actionView
+            actionPanel = created
+        }
+        let options = Preferences.shared.options
+        actionView.actions = options.actionProfiles.first(where: { $0.id == originApp?.bundleIdentifier })?.actions.filter {
+            $0.configured && !$0.conflicts(with: options.shortcut)
+        } ?? []
+        actionView.appName = originApp?.localizedName ?? L10n.text("当前应用", "Current App")
+        actionView.icon = originApp?.icon
+        actionView.ready = actionExecutor.focus != nil
+        actionView.message = actionMessage(available: actionView.ready)
+        actionView.acceptsPointerEvent = { [weak self] in self?.view.acceptsPointerEvent($0) == true }
+        actionPanel?.setFrame(frame, display: false)
+        actionView.frame = NSRect(origin: .zero, size: frame.size)
+        actionView.bounds = NSRect(x: 0, y: 0, width: RingGeometry.canvas, height: RingGeometry.canvas)
+        actionPanel?.orderFrontRegardless()
+        actionView.reset()
+    }
+
+    private func switchMode() {
+        guard isVisible, !view.isContextMenuOpen, !view.isEditingName, !view.isPointerDown, !actionView.isPointerDown else { return }
+        switchingMode = true
+        defer { switchingMode = false }
+        optionHold?.cancel(); optionHold = nil; optionTap.reset(); openedByShortcut = false
+        gate.invalidate(); windows.cancelAndClear(); tabs.cancelAndClear(); counts.cancelAndClear()
+        previews.cancelAndClear(); previewCard.dismiss(); view.cancelHover()
+        let frame = actionMode ? actionPanel!.frame : panel!.frame
+        setActionLauncherSurface(false)
+        view.updateOption(pressed: false, allowEntry: false)
+        if view.showsLauncher { view.endLauncherMode() }
+        view.clearSelection()
+        actionMode.toggle()
+        Preferences.shared.options.rememberActionRing(actionMode, for: originApp?.bundleIdentifier)
+        if actionMode {
+            panel?.orderOut(nil)
+            presentActions(frame: frame)
+        } else {
+            actionPanel?.orderOut(nil)
+            let options = Preferences.shared.options
+            view.reset(apps: catalog.snapshot(options: options), options: options)
+            view.launcherApps = launcherCatalog.snapshot(options.launcherApps)
+            panel?.makeKeyAndOrderFront(nil); panel?.makeFirstResponder(view)
+            view.refresh(); refreshCounts()
+        }
+        AppLog.shared.record("mode_changed", category: .actions, fields: ["actions": String(actionMode)])
+    }
+
+    private func updateLauncherOption(pressed: Bool, allowEntry: Bool = true) {
+        view.updateOption(pressed: pressed, allowEntry: allowEntry)
+        if actionMode { setActionLauncherSurface(view.showsLauncher) }
+    }
+
+    private func setActionLauncherSurface(_ show: Bool) {
+        actionPanel?.setLauncherVisible(show, launcher: view, actions: actionView, restoreTo: panel)
+    }
+
+    private func handleKeyboard(_ event: NSEvent) -> Bool {
+        guard isVisible else { return false }
+        // Releases must retract the hold overlay even during a mouse press.
+        // Clearing that press prevents mouse-up from selecting the underlying ring.
+        if event.type == .flagsChanged, !event.modifierFlags.contains(.option) {
+            updateLauncherOption(pressed: false, allowEntry: false)
+        }
+        guard !view.isContextMenuOpen, !view.isEditingName, !view.isPointerDown, !actionView.isPointerDown else {
+            optionTap.reset(); optionHold?.cancel(); optionHold = nil
+            return false
+        }
+        if event.type == .keyDown {
+            optionTap.reset(); optionHold?.cancel(); optionHold = nil
+            let shortcut = Preferences.shared.options.shortcut
+            var modifiers: UInt32 = 0
+            if event.modifierFlags.contains(.command) { modifiers |= UInt32(cmdKey) }
+            if event.modifierFlags.contains(.option) { modifiers |= UInt32(optionKey) }
+            if event.modifierFlags.contains(.control) { modifiers |= UInt32(controlKey) }
+            if event.modifierFlags.contains(.shift) { modifiers |= UInt32(shiftKey) }
+            // Carbon owns invocation; do not race its toggle callback.
+            if actionMode, UInt32(event.keyCode) != shortcut.keyCode || modifiers != shortcut.modifiers { dismiss() }
+            return false
+        }
+        // Device-dependent left/right bits from IOLLEvent.h. Aggregate .option
+        // cannot distinguish releasing one Option while the other is still down.
+        let leftDown = event.modifierFlags.rawValue & 0x20 != 0
+        let rightDown = event.modifierFlags.rawValue & 0x40 != 0
+        let other = !event.modifierFlags.intersection([.command, .control, .shift, .function]).isEmpty || rightDown
+        if optionTap.update(left: event.keyCode == 58, pressed: leftDown, otherModifiers: other, time: event.timestamp) {
+            switchMode(); return true
+        }
+        optionHold?.cancel(); optionHold = nil
+        if event.keyCode == 58 {
+            if !leftDown { updateLauncherOption(pressed: rightDown, allowEntry: false) }
+            else if !other, optionTap.isDown {
+                let work = DispatchWorkItem { [weak self] in
+                    guard let self, self.isVisible, self.optionTap.isDown,
+                          CGEventSource.keyState(.combinedSessionState, key: 58),
+                          !self.view.isPointerDown, !self.actionView.isPointerDown,
+                          !self.view.isContextMenuOpen, !self.view.isEditingName else { return }
+                    self.optionHold = nil
+                    self.optionTap.reset() // This press is a hold, not part of a double-tap.
+                    self.updateLauncherOption(pressed: true)
+                }
+                optionHold = work
+                DispatchQueue.main.asyncAfter(deadline: .now() + LeftOptionDoubleTap.holdDelay, execute: work)
+            }
+        } else {
+            updateLauncherOption(pressed: event.modifierFlags.contains(.option), allowEntry: event.keyCode == 61)
+        }
+        return true
+    }
 
     func applicationsChanged() {
         names.pruneTerminated()
+        if actionMode, isVisible {
+            if originApp?.isTerminated != false || NSWorkspace.shared.frontmostApplication?.processIdentifier != originApp?.processIdentifier { dismiss() }
+            return
+        }
         // Keep spatial order stable while selecting. Drop terminated apps only.
         guard isVisible else { return }
         let live = Set(NSWorkspace.shared.runningApplications.filter { !$0.isTerminated }.map(\.processIdentifier))

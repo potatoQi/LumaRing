@@ -12,6 +12,7 @@ import AppKit
 
     func activate(pid: pid_t, completion: @escaping (Bool) -> Void) {
         guard let app = NSRunningApplication(processIdentifier: pid), !app.isTerminated else {
+            AppLog.shared.record("activation_unavailable", category: .app, level: .warning, fields: ["pid": String(pid)])
             completion(false); return
         }
         guard let url = app.bundleURL else {
@@ -24,7 +25,10 @@ import AppKit
         configuration.promptsUserIfNeeded = false
         open(url, configuration) { activated, error in
             DispatchQueue.main.async {
-                completion(error == nil && activated?.processIdentifier == pid && activated?.isTerminated == false)
+                let success = error == nil && activated?.processIdentifier == pid && activated?.isTerminated == false
+                AppLog.shared.record("activation_result", category: .app, level: success ? .info : .warning,
+                                     fields: ["pid": String(pid), "success": String(success)])
+                completion(success)
             }
         }
     }

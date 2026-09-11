@@ -99,6 +99,8 @@ enum PreviewFailure: Error, Equatable {
                 let applicationName = content.applications.first { $0.processID == window.pid }?.applicationName
                 guard let id = PreviewMatcher.match(window, candidates: candidates, applicationName: applicationName),
                       let target = content.windows.first(where: { $0.windowID == id }) else {
+                    AppLog.shared.record("unmatched", category: .preview, level: .warning,
+                                         fields: ["pid": String(window.pid), "item": AppLog.token(window.id)])
                     completion(.failure(.unmatched)); return
                 }
                 let configuration = SCStreamConfiguration()
@@ -118,6 +120,7 @@ enum PreviewFailure: Error, Equatable {
             } catch {
                 if ticket == self.generation, !Task.isCancelled {
                     let failure = PreviewFailure(error: error)
+                    AppLog.shared.record("capture_failed", category: .preview, level: .warning, fields: AppLog.errorFields(error))
                     if failure == .permissionDenied {
                         self.denied = true
                         Preferences.shared.recordCaptureAccess(false)

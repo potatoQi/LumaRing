@@ -33,10 +33,11 @@ struct UpdateConfiguration {
     func start() {
         guard controller == nil else { return }
         guard UpdateConfiguration(info: Bundle.main.infoDictionary ?? [:]) != nil else {
+            AppLog.shared.record("configuration_invalid", category: .updates, level: .error)
             configurationMissing = true
             return
         }
-        let controller = SPUStandardUpdaterController(startingUpdater: false, updaterDelegate: nil, userDriverDelegate: nil)
+        let controller = SPUStandardUpdaterController(startingUpdater: false, updaterDelegate: self, userDriverDelegate: nil)
         self.controller = controller
         controller.updater.publisher(for: \.canCheckForUpdates).receive(on: DispatchQueue.main)
             .sink { [weak self] in self?.canCheck = $0 }.store(in: &subscriptions)
@@ -47,12 +48,20 @@ struct UpdateConfiguration {
         // Sparkle owns scheduling, skip/remind persistence, verification, installation and relaunch.
         // Defaults are configured in Info.plist; never override users' choices on launch.
         controller.startUpdater()
+        AppLog.shared.record("started", category: .updates)
     }
 
     func setAutomaticChecks(_ enabled: Bool) { controller?.updater.automaticallyChecksForUpdates = enabled }
     @objc func checkForUpdates(_ sender: Any? = nil) {
         guard canCheck else { return }
+        AppLog.shared.record("manual_check", category: .updates)
         controller?.checkForUpdates(sender)
     }
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool { canCheck }
+}
+
+extension UpdateService: SPUUpdaterDelegate {
+    func updater(_ updater: SPUUpdater, didAbortWithError error: Error) {
+        AppLog.shared.record("check_aborted", category: .updates, level: .warning, fields: AppLog.errorFields(error))
+    }
 }

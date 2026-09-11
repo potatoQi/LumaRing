@@ -8,7 +8,12 @@ import TrackpadInput
     struct Configuration: Equatable { let tap: TrackpadTap; let pinch: Bool }
     enum Status: Equatable { case disabled, listening(Int), unavailable, noDevice, paused }
     enum Suspension: Hashable { case sleep, display, session, screenLock }
-    @Published private(set) var status: Status = .disabled
+    @Published private(set) var status: Status = .disabled {
+        didSet {
+            guard status != oldValue else { return }
+            AppLog.shared.record("status_changed", category: .gestures, fields: ["status": String(describing: status)])
+        }
+    }
     var enabled: Bool { tapEnabled || pinchEnabled }
     var tapEnabled: Bool { tapGesture != .disabled }
     private(set) var tapGesture = TrackpadTap.disabled

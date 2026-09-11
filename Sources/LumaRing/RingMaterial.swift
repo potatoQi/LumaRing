@@ -1,6 +1,6 @@
 import AppKit
 
-/// Fully opaque system-following white/black surface. No blur or transparency.
+/// Fully opaque white/black surface following the app's effective appearance.
 @MainActor final class RingMaterial: NSView {
     private let shape = CAShapeLayer()
     override init(frame frameRect: NSRect) {
