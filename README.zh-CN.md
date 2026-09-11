@@ -8,7 +8,7 @@
   <a href="README.md">English</a> · 简体中文
 </p>
 
-https://github.com/user-attachments/assets/a2290c78-61ed-4184-bb1c-fc4c29759209
+https://github.com/user-attachments/assets/e142bd26-0526-49c7-95a0-8131546e7519
 
 ---
 
