@@ -82,6 +82,7 @@ DMG 是对用户提供的主要下载，ZIP 是 appcast 中的更新包。生成
 2. 在 GitHub 的 Releases 页面新建草稿，选择该标签，填写对应的更新说明。
 3. 上传成品目录中的 **全部四个文件**，不要重命名、重压缩或手改签名后的 appcast。下载说明优先链接 DMG。
 4. 检查版本、说明和附件后，点击 **Publish release**，设为最新正式版本。预发布与草稿不会作为稳定版更新源。
+5. 同步 [Homebrew Tap](https://github.com/potatoQi/homebrew-tap) 中的 `Casks/lumaring.rb`：更新版本号和已发布 DMG 的 SHA-256，验证后提交并推送。GitHub Release 不会自动更新 Tap。
 
 更新客户端从固定的 GitHub HTTPS 地址读取签名 appcast，并验证 ZIP 更新包。仅上传 DMG 可供用户手动安装；自动更新必须同时提供 ZIP 和对应的 appcast。
 

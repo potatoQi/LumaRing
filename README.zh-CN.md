@@ -20,7 +20,7 @@ https://github.com/user-attachments/assets/e142bd26-0526-49c7-95a0-8131546e7519
 
 ## 开始使用
 
-1. 从 [Releases](https://github.com/potatoQi/LumaRing/releases) 下载并打开 **DMG**，将 **LumaRing.app** 拖到旁边的 **Applications（应用程序）**。
+1. 使用 Homebrew 安装：`brew install --cask potatoQi/tap/lumaring`。也可从 [Releases](https://github.com/potatoQi/LumaRing/releases) 下载并打开 **DMG**，将 **LumaRing.app** 拖到旁边的 **Applications（应用程序）**。
 2. 打开 LumaRing，点击菜单栏图标打开设置，授予**辅助功能**权限。
 3. 按 **Option + Tab** 或三指、四指轻点触控板（在设置中选择），呼出轮盘。
 4. 鼠标悬停应用，展开二级轮盘；点击应用、窗口或标签页即可切换。

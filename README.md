@@ -20,7 +20,7 @@ Requires **macOS 14 or later**. Supports Apple Silicon and Intel.
 
 ## Get Start
 
-1. Download the **DMG** from [Releases](https://github.com/potatoQi/LumaRing/releases), open it, and drag **LumaRing.app** onto **Applications**.
+1. Install with Homebrew: `brew install --cask potatoQi/tap/lumaring`. Or download the **DMG** from [Releases](https://github.com/potatoQi/LumaRing/releases), open it, and drag **LumaRing.app** onto **Applications**.
 2. Open LumaRing, click its menu bar icon to open settings, and grant **Accessibility** access.
 3. Press **Option + Tab** or tap the trackpad with three or four fingers (choose in settings) to open the ring.
 4. Hover over an app to expand the secondary ring, then click an app, window, or tab to switch.
