@@ -700,7 +700,7 @@ import LumaRingCore
         let app = apps.first { $0.pid == hoveredApp } ?? currentApp
         let name = app?.name ?? (apps.isEmpty ? L10n.text("暂无应用", "No apps") : L10n.text("应用", "Apps"))
         let paging = (showsWindowArc && windowPages > 1) || appPages > 1
-        RingCenterLabel.draw(title: name, detail: app == nil ? RingCenterLabel.modeHint : (loading ? "" : message),
+        RingCenterLabel.draw(title: name, detail: app == nil || loading ? "" : message,
                              paging: paging, titleColor: ink, detailColor: muted)
         if paging {
             drawSymbol("chevron.left", rect: NSRect(x: c.x - 20, y: c.y - 29, width: 5, height: 8), color: muted)

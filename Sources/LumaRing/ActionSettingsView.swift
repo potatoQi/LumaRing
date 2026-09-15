@@ -4,7 +4,7 @@ import UniformTypeIdentifiers
 
 struct ActionSettingsView: View {
     @Binding var profiles: [ActionProfile]
-    let invocation: Shortcut
+    let invocations: [Shortcut]
     @State private var selected: String?
 
     var body: some View {
@@ -21,7 +21,7 @@ struct ActionSettingsView: View {
                     Text(L10n.text("添加操作，设置名称与快捷键。", "Add an action, then set its name and shortcut."))
                         .foregroundStyle(.secondary)
                 } else {
-                    ActionProfileEditor(profile: $profiles[index], invocation: invocation)
+                    ActionProfileEditor(profile: $profiles[index], invocations: invocations)
                 }
                 HStack {
                     Button(L10n.text("添加操作", "Add Action")) { profiles[index].actions.append(AppAction()) }
@@ -53,14 +53,14 @@ struct ActionSettingsView: View {
 
 private struct ActionProfileEditor: View {
     @Binding var profile: ActionProfile
-    let invocation: Shortcut
+    let invocations: [Shortcut]
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             ForEach($profile.actions) { $action in
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
                         TextField(L10n.text("操作名称", "Action name"), text: $action.name).textFieldStyle(.roundedBorder)
-                        ActionShortcutRecorder(shortcut: $action.shortcut).frame(width: 130, height: 28)
+                        ShortcutRecorder(shortcut: $action.shortcut).frame(width: 130, height: 28)
                         Button { profile.move(action.id, by: -1) } label: { Image(systemName: "arrow.up") }
                             .disabled(profile.actions.first?.id == action.id).help(L10n.text("上移", "Move up"))
                         Button { profile.move(action.id, by: 1) } label: { Image(systemName: "arrow.down") }
@@ -68,26 +68,12 @@ private struct ActionProfileEditor: View {
                         Button { profile.actions.removeAll { $0.id == action.id } } label: { Image(systemName: "minus.circle") }
                             .help(L10n.text("删除操作", "Remove action"))
                     }
-                    if action.conflicts(with: invocation) {
+                    if invocations.contains(where: { action.conflicts(with: $0) }) {
                         Text(L10n.text("与轮盘呼出快捷键冲突，请更换。", "Conflicts with the ring shortcut. Choose another combination."))
                             .font(.caption).foregroundStyle(.orange)
                     }
                 }
             }
         }
-    }
-}
-
-private struct ActionShortcutRecorder: NSViewRepresentable {
-    @Binding var shortcut: Shortcut?
-    func makeNSView(context: Context) -> RecorderButton {
-        let button = RecorderButton()
-        button.bezelStyle = .rounded; button.allowsUnmodified = true
-        return button
-    }
-    func updateNSView(_ button: RecorderButton, context: Context) {
-        button.onRecord = { shortcut = $0 }
-        button.savedTitle = shortcut?.display ?? L10n.text("录入快捷键", "Record shortcut")
-        if !button.recording { button.title = button.savedTitle }
     }
 }

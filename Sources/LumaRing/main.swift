@@ -8,6 +8,8 @@ import SwiftUI
     private let catalog = ApplicationCatalog()
     private lazy var ring = RingController(catalog: catalog)
     private let hotKey = HotKey()
+    private let actionHotKey = HotKey()
+    private var recordingShortcut = false
     private let trackpad = TrackpadGesture.shared
     private lazy var pinchMinimizer = PinchMinimizer(allowed: { [weak self] in
         guard let self else { return false }
@@ -15,7 +17,6 @@ import SwiftUI
     })
     private var subscriptions = Set<AnyCancellable>()
     private var tokens: [NSObjectProtocol] = []
-    private var registeredShortcut: Shortcut?
     private var errorPopover: NSPopover?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -40,6 +41,7 @@ import SwiftUI
         statusItem.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
         hotKey.onPress = { [weak self] in self?.ring.pressShortcut() }
         hotKey.onRelease = { [weak self] in self?.ring.releaseShortcut() }
+        actionHotKey.onPress = { [weak self] in self?.ring.pressActionShortcut() }
         trackpad.onTap = { [weak self] in
             guard Preferences.shared.options.trackpadTap != .disabled else { return }
             self?.ring.toggleFromTrackpad()
@@ -72,15 +74,20 @@ import SwiftUI
         ring.onSettings = { [weak self] in self?.showSettings() }
         ring.onError = { [weak self] text in self?.showError(text) }
         catalog.onChange = { [weak self] in self?.ring.applicationsChanged() }
-        Preferences.shared.$options.sink { [weak self] options in
-            guard let self, self.registeredShortcut != options.shortcut else { return }
-            let success = self.hotKey.register(options.shortcut)
-            self.registeredShortcut = success ? options.shortcut : nil
-            // Published changes must not recursively mutate SwiftUI during an update.
-            DispatchQueue.main.async {
-                Preferences.shared.shortcutError = success ? nil : L10n.text("快捷键被占用，请换一个组合。可点击菜单栏图标打开设置。", "This shortcut is in use. Click the menu bar icon to open settings and choose another combination.")
-            }
+        Preferences.shared.$options.map(\.invocationShortcuts).removeDuplicates().sink { [weak self] _ in
+            DispatchQueue.main.async { self?.registerShortcuts() }
         }.store(in: &subscriptions)
+        tokens.append(NotificationCenter.default.addObserver(forName: RecorderButton.recordingDidChange, object: nil, queue: .main) { [weak self] notification in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.recordingShortcut = notification.object as? Bool ?? false
+                if self.recordingShortcut {
+                    self.hotKey.unregister(); self.actionHotKey.unregister()
+                } else {
+                    DispatchQueue.main.async { self.registerShortcuts() }
+                }
+            }
+        })
         Preferences.shared.$options.map { TrackpadGesture.Configuration(tap: $0.trackpadTap, pinch: $0.threeFingerPinch) }
             .removeDuplicates().sink { [weak self] gestures in
             // Options publishes before SwiftUI finishes updating its binding.
@@ -129,6 +136,19 @@ import SwiftUI
             showSettings()
         }
         UserDefaults.standard.set(true, forKey: "hasLaunched.v1")
+    }
+
+    private func registerShortcuts() {
+        guard !recordingShortcut else { return }
+        let preferences = Preferences.shared, options = preferences.options
+        // Release both first so changing one binding to the other's old key works.
+        hotKey.unregister(); actionHotKey.unregister()
+        preferences.shortcutError = hotKey.register(options.shortcut) ? nil : L10n.text(
+            "快捷键被占用，请换一个按键。", "This shortcut is in use. Choose another key.")
+        preferences.actionShortcutError = nil
+        if let shortcut = options.actionShortcut, !options.invocationConflict, !actionHotKey.register(shortcut) {
+            preferences.actionShortcutError = L10n.text("快捷键被占用，请换一个按键。", "This shortcut is in use. Choose another key.")
+        }
     }
 
     private func configureMainMenu() {

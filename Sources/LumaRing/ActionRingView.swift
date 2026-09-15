@@ -86,7 +86,7 @@ import LumaRingCore
             item.setAccessibilityRole(.button); item.setAccessibilityLabel(action.displayName)
             item.setAccessibilityHelp(action.shortcut?.display ?? ""); item.setAccessibilityParent(self)
             item.setAccessibilityEnabled(ready)
-            item.setAccessibilityFrame(window.convertToScreen(convert(CGRect(x: point.x - 27, y: point.y - 18, width: 54, height: 40), to: nil)))
+            item.setAccessibilityFrame(window.convertToScreen(convert(CGRect(x: point.x - 32, y: point.y - 20, width: 64, height: 48), to: nil)))
             item.action = { [weak self] in if self?.ready == true { self?.onAction?(action) } }
             return item
         }
@@ -147,20 +147,20 @@ import LumaRingCore
         }
         for (index, action) in visible.enumerated() {
             let point = RingGeometry.point(angle: RingGeometry.angle(index: index, count: visible.count), radius: 82)
-            text(action.displayName, rect: CGRect(x: point.x - 27, y: point.y - 2, width: 54, height: 24), size: 9.5,
+            text(action.displayName, rect: CGRect(x: point.x - 32, y: point.y - 2, width: 64, height: 30), size: 12,
                  color: ready && !inactive ? .labelColor : .secondaryLabelColor, wrap: true)
-            text(action.shortcut?.display ?? "", rect: CGRect(x: point.x - 27, y: point.y - 18, width: 54, height: 14), size: 9,
-                 color: ready && !inactive ? .controlAccentColor : .tertiaryLabelColor)
+            text(action.shortcut?.display ?? "", rect: CGRect(x: point.x - 32, y: point.y - 20, width: 64, height: 16), size: 11,
+                 color: ready && !inactive ? .labelColor : .secondaryLabelColor, weight: .medium)
         }
-        RingCenterLabel.draw(title: appName, detail: message.isEmpty ? RingCenterLabel.modeHint : message, paging: inactive ? launcherPaging : pages > 1, icon: icon)
+        RingCenterLabel.draw(title: appName, detail: message, paging: inactive ? launcherPaging : pages > 1, icon: icon)
         if !inactive, pages > 1 { RingCenterLabel.page("‹  \(page + 1)/\(pages)  ›", in: pageRect) }
     }
-    private func text(_ value: String, rect: CGRect, size: CGFloat, color: NSColor, wrap: Bool = false) {
+    private func text(_ value: String, rect: CGRect, size: CGFloat, color: NSColor, wrap: Bool = false, weight: NSFont.Weight = .regular) {
         let paragraph = NSMutableParagraphStyle(); paragraph.alignment = .center
         paragraph.lineBreakMode = wrap ? .byWordWrapping : .byTruncatingTail
         NSGraphicsContext.saveGraphicsState()
         defer { NSGraphicsContext.restoreGraphicsState() }
         NSBezierPath(rect: rect).addClip()
-        (value as NSString).draw(in: rect, withAttributes: [.font: NSFont.systemFont(ofSize: size), .foregroundColor: color, .paragraphStyle: paragraph])
+        (value as NSString).draw(in: rect, withAttributes: [.font: NSFont.systemFont(ofSize: size, weight: weight), .foregroundColor: color, .paragraphStyle: paragraph])
     }
 }

@@ -24,7 +24,7 @@ Requires **macOS 14 or later**. Supports Apple Silicon and Intel.
 2. Open LumaRing, click its menu bar icon to open settings, and grant **Accessibility** access.
 3. Press **Option + Tab** or tap the trackpad with three or four fingers (choose in settings) to open the ring.
 4. Hover over an app to expand the secondary ring, then click an app, window, or tab to switch.
-5. To use app shortcuts, configure them in **Settings → Actions**. With the ring open, double-tap **left Option** to switch modes.
+5. Configure app shortcuts in **Settings → Actions**. Double-tap **left Option** with the ring open to switch modes, or set a direct shortcut in **Settings → General → Activation**.
 
 Press the shortcut again or click outside the ring to dismiss it. If macOS blocks the first launch, allow LumaRing in **System Settings → Privacy & Security**.
 

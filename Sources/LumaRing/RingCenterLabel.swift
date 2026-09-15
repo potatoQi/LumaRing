@@ -3,18 +3,20 @@ import LumaRingCore
 
 /// Shared typography for the neutral center in every ring mode.
 @MainActor enum RingCenterLabel {
-    static let titleFont = NSFont.systemFont(ofSize: 14, weight: .medium)
+    static var titleFont: NSFont {
+        NSFont.systemFont(ofSize: CGFloat(Preferences.shared.options.centerTitleSize), weight: .medium)
+    }
     static let detailFont = NSFont.systemFont(ofSize: 10)
-    static var modeHint: String { L10n.text("左 ⌥ ×2 切换", "Left ⌥ ×2") }
 
     static func draw(title: String, detail: String, paging: Bool = false, icon: NSImage? = nil,
                      titleColor: NSColor = .labelColor, detailColor: NSColor = .secondaryLabelColor) {
         let center = RingGeometry.center
+        let titleFont = titleFont
         let titleHeight = height(title, font: titleFont, width: 72, lines: paging || icon != nil ? 1 : 2)
         // A long title gets two lines without shrinking its font. Reserve one
         // detail line in that case, or when the paging controls need space.
         let detailHeight = detail.isEmpty ? 0 : height(detail, font: detailFont, width: 76,
-                                                     lines: paging || icon != nil || titleHeight > 17 ? 1 : 2)
+                                                     lines: paging || icon != nil || titleHeight > titleFont.pointSize + 3 ? 1 : 2)
         let gap: CGFloat = detail.isEmpty ? 0 : 5
         let iconHeight: CGFloat = icon == nil ? 0 : 21
         let total = iconHeight + titleHeight + gap + detailHeight

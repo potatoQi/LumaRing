@@ -51,6 +51,22 @@ final class RingStateTests: XCTestCase {
         XCTAssertFalse(encoded.contains("hoverDelay"))
     }
 
+    func testCenterTitleSizePersistsWithoutResettingOtherPreferences() throws {
+        let existing = try JSONDecoder().decode(Options.self, from: Data(#"{"ringSize":480}"#.utf8))
+        XCTAssertEqual(existing.centerTitleSize, 12)
+        XCTAssertEqual(existing.ringSize, 480)
+        var options = existing
+        options.centerTitleSize = 15
+        let restored = try JSONDecoder().decode(Options.self, from: JSONEncoder().encode(options))
+        XCTAssertEqual(restored.centerTitleSize, 15)
+        XCTAssertEqual(restored.ringSize, 480)
+        for (raw, expected) in [("0", 10), ("99", 16), ("null", 12), (#""invalid""#, 12)] {
+            let decoded = try JSONDecoder().decode(Options.self, from: Data("{\"centerTitleSize\":\(raw),\"ringSize\":480}".utf8))
+            XCTAssertEqual(decoded.centerTitleSize, expected)
+            XCTAssertEqual(decoded.ringSize, 480)
+        }
+    }
+
     @MainActor func testShortcutRecorderAccessiblePressAndCancel() async {
         let button = RecorderButton()
         button.savedTitle = "⌃⌥Space"

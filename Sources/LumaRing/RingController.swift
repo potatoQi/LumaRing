@@ -51,6 +51,7 @@ final class RingPanel: NSPanel {
         actionView.onSettings = { [weak self] in self?.dismiss(); self?.onSettings?() }
         actionView.onAction = { [weak self] action in
             guard let self, self.actionMode, self.isVisible, !self.view.showsLauncher, let target = self.actionExecutor.focus else { return }
+            guard !Preferences.shared.options.invocationShortcuts.contains(where: { action.conflicts(with: $0) }) else { return }
             let invocation = Preferences.shared.options.shortcut
             self.dismiss()
             self.actionExecutor.execute(action, target: target, invocation: invocation) { [weak self] success in
@@ -287,15 +288,22 @@ final class RingPanel: NSPanel {
 
     func toggle() { if isVisible { dismiss() } else { show() } }
 
+    func pressActionShortcut() {
+        if isVisible {
+            if actionMode { dismiss() } else { switchMode() }
+        } else { show(actionMode: true) }
+    }
+
     func toggleFromTrackpad() {
         if isVisible { dismiss() } else { show(fromTrackpad: true) }
     }
 
-    func show(fromTrackpad: Bool = false) {
+    func show(fromTrackpad: Bool = false, actionMode requestedMode: Bool? = nil) {
         if isVisible { return }
         actionExecutor.cancel()
         originApp = NSWorkspace.shared.frontmostApplication
-        actionMode = Preferences.shared.options.usesActionRing(for: originApp?.bundleIdentifier)
+        actionMode = requestedMode ?? Preferences.shared.options.usesActionRing(for: originApp?.bundleIdentifier)
+        if requestedMode != nil { Preferences.shared.options.rememberActionRing(actionMode, for: originApp?.bundleIdentifier) }
         optionTap.reset()
         presentationID = UUID()
         closing = false
@@ -436,7 +444,7 @@ final class RingPanel: NSPanel {
         }
         let options = Preferences.shared.options
         actionView.actions = options.actionProfiles.first(where: { $0.id == originApp?.bundleIdentifier })?.actions.filter {
-            $0.configured && !$0.conflicts(with: options.shortcut)
+            $0.configured && !options.invocationShortcuts.contains(where: $0.conflicts)
         } ?? []
         actionView.appName = originApp?.localizedName ?? L10n.text("当前应用", "Current App")
         actionView.icon = originApp?.icon
@@ -500,14 +508,14 @@ final class RingPanel: NSPanel {
         }
         if event.type == .keyDown {
             optionTap.reset(); optionHold?.cancel(); optionHold = nil
-            let shortcut = Preferences.shared.options.shortcut
+            let shortcuts = Preferences.shared.options.invocationShortcuts
             var modifiers: UInt32 = 0
             if event.modifierFlags.contains(.command) { modifiers |= UInt32(cmdKey) }
             if event.modifierFlags.contains(.option) { modifiers |= UInt32(optionKey) }
             if event.modifierFlags.contains(.control) { modifiers |= UInt32(controlKey) }
             if event.modifierFlags.contains(.shift) { modifiers |= UInt32(shiftKey) }
             // Carbon owns invocation; do not race its toggle callback.
-            if actionMode, UInt32(event.keyCode) != shortcut.keyCode || modifiers != shortcut.modifiers { dismiss() }
+            if actionMode, !shortcuts.contains(where: { $0.matches(keyCode: UInt32(event.keyCode), modifiers: modifiers) }) { dismiss() }
             return false
         }
         // Device-dependent left/right bits from IOLLEvent.h. Aggregate .option

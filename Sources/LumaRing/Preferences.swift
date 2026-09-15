@@ -16,6 +16,9 @@ struct Shortcut: Codable, Equatable {
         if modifiers & UInt32(cmdKey) != 0 { result += "⌘" }
         return result + label
     }
+    func matches(keyCode: UInt32, modifiers: UInt32) -> Bool {
+        self.keyCode == keyCode && self.modifiers == modifiers
+    }
 }
 
 enum TrackpadTap: Int, Codable, CaseIterable {
@@ -30,12 +33,17 @@ enum TrackpadTap: Int, Codable, CaseIterable {
 }
 
 struct Options: Codable {
+    static let centerTitleSizeRange = 10...16
     var theme = AppTheme.system
+    var centerTitleSize = 12
     var loggingEnabled = true
     var actionProfiles: [ActionProfile] = []
     private(set) var actionRingApps: Set<String> = []
 
     var shortcut = Shortcut()
+    var actionShortcut: Shortcut?
+    var invocationShortcuts: [Shortcut] { [shortcut] + [actionShortcut].compactMap { $0 } }
+    var invocationConflict: Bool { actionShortcut.map { shortcut.matches(keyCode: $0.keyCode, modifiers: $0.modifiers) } ?? false }
     var holdToSelect = false
     var trackpadTap = TrackpadTap.disabled
     var threeFingerPinch = false
@@ -67,17 +75,21 @@ struct Options: Codable {
 
     init() {}
     private enum CodingKeys: String, CodingKey {
-        case theme, loggingEnabled, actionProfiles, actionRingApps, shortcut, holdToSelect, trackpadTap, threeFingerPinch, ringSize, previews, previewWidth, includeMinimized, sortByName, excludedBundleIDs, appPageSize, windowPageSize, appContentModes, launcherApps
+        case theme, centerTitleSize, loggingEnabled, actionProfiles, actionRingApps, shortcut, actionShortcut, holdToSelect, trackpadTap, threeFingerPinch, ringSize, previews, previewWidth, includeMinimized, sortByName, excludedBundleIDs, appPageSize, windowPageSize, appContentModes, launcherApps
     }
     private enum LegacyCodingKeys: String, CodingKey { case fourFingerTap }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         theme = AppTheme(rawValue: (try? c.decode(String.self, forKey: .theme)) ?? "") ?? .system
+        centerTitleSize = min(Self.centerTitleSizeRange.upperBound, max(Self.centerTitleSizeRange.lowerBound,
+            (try? c.decode(Int.self, forKey: .centerTitleSize)) ?? 12))
         loggingEnabled = (try? c.decode(Bool.self, forKey: .loggingEnabled)) ?? true
         actionProfiles = ActionProfile.normalized((try? c.decode([ActionProfile].self, forKey: .actionProfiles)) ?? [])
         actionRingApps = Set(((try? c.decode([String].self, forKey: .actionRingApps)) ?? [])
             .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
         shortcut = try c.decodeIfPresent(Shortcut.self, forKey: .shortcut) ?? Shortcut()
+        actionShortcut = try c.decodeIfPresent(Shortcut.self, forKey: .actionShortcut)
+        if let value = actionShortcut, !AppAction.validShortcut(value) { actionShortcut = nil }
         holdToSelect = try c.decodeIfPresent(Bool.self, forKey: .holdToSelect) ?? false
         if c.contains(.trackpadTap) {
             trackpadTap = TrackpadTap(rawValue: (try? c.decode(Int.self, forKey: .trackpadTap)) ?? 0) ?? .disabled
@@ -109,7 +121,10 @@ final class Preferences: ObservableObject {
             language.save(to: .standard)
             captureMessage = nil
             if shortcutError != nil {
-                shortcutError = L10n.text("快捷键被占用，请换一个组合。可点击菜单栏图标打开设置。", "This shortcut is in use. Click the menu bar icon to open settings and choose another combination.")
+                shortcutError = L10n.text("快捷键被占用，请换一个按键。", "This shortcut is in use. Choose another key.")
+            }
+            if actionShortcutError != nil {
+                actionShortcutError = L10n.text("快捷键被占用，请换一个按键。", "This shortcut is in use. Choose another key.")
             }
             NotificationCenter.default.post(name: .lumaRingLanguageDidChange, object: nil)
         }
@@ -120,6 +135,7 @@ final class Preferences: ObservableObject {
         }
     }
     @Published var shortcutError: String?
+    @Published var actionShortcutError: String?
     @Published var accessibilityGranted = AXIsProcessTrusted()
     @Published var screenCaptureGranted = CGPreflightScreenCaptureAccess()
 

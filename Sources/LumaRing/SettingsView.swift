@@ -42,7 +42,7 @@ struct SettingsView: View {
                     case 0: general
                     case 1: permissions
                     case 2: launcherSettings; appFilter
-                    case 4: ActionSettingsView(profiles: $preferences.options.actionProfiles, invocation: preferences.options.shortcut)
+                    case 4: ActionSettingsView(profiles: $preferences.options.actionProfiles, invocations: preferences.options.invocationShortcuts)
                     default: guide
                     }
                 }.padding(26).frame(maxWidth: .infinity, alignment: .leading)
@@ -81,6 +81,13 @@ struct SettingsView: View {
                         Text(theme.title).tag(theme)
                     }
                 }.pickerStyle(.segmented)
+                Stepper(value: $preferences.options.centerTitleSize, in: Options.centerTitleSizeRange) {
+                    HStack {
+                        Text(L10n.text("轮盘中央标题字号", "Ring center title size"))
+                        Spacer()
+                        Text("\(preferences.options.centerTitleSize) pt").monospacedDigit().foregroundStyle(.secondary)
+                    }
+                }
             }
             card(L10n.text("软件更新", "Software Updates"), symbol: "arrow.triangle.2.circlepath") {
                 HStack {
@@ -100,12 +107,25 @@ struct SettingsView: View {
                 HStack {
                     VStack(alignment: .leading, spacing: 5) {
                         Text(L10n.text("全局快捷键", "Global shortcut"))
-                        Text(L10n.text("点击右侧，按下要使用的呼出组合键。", "Click the button, then press your preferred key combination.")).font(.caption).foregroundStyle(.secondary)
+                        Text(L10n.text("支持单键或组合键。单键会占用该键的全局输入。", "Use a single key or a key combination. A single key is reserved system-wide.")).font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer()
                     ShortcutRecorder(shortcut: $preferences.options.shortcut).frame(width: 155, height: 34)
                 }
                 if let error = preferences.shortcutError { Text(error).font(.caption).foregroundStyle(.orange) }
+                HStack {
+                    Text(L10n.text("应用内轮盘快捷键", "App action ring shortcut"))
+                    Spacer()
+                    ShortcutRecorder(shortcut: $preferences.options.actionShortcut).frame(width: 155, height: 34)
+                    if preferences.options.actionShortcut != nil {
+                        Button(L10n.text("清除", "Clear")) { preferences.options.actionShortcut = nil }
+                    }
+                }
+                Text(L10n.text("直接呼出当前应用的快捷操作；仍可双击左 Option 切换模式。", "Open actions for the current app directly. Double-tap left Option still switches modes."))
+                    .font(.caption).foregroundStyle(.secondary)
+                if preferences.options.invocationConflict {
+                    Text(L10n.text("两个轮盘快捷键不能相同。", "The two ring shortcuts must be different.")).font(.caption).foregroundStyle(.orange)
+                } else if let error = preferences.actionShortcutError { Text(error).font(.caption).foregroundStyle(.orange) }
                 Toggle(L10n.text("按住快捷键选择，松开立即切换", "Hold the shortcut to select; release to switch"), isOn: $preferences.options.holdToSelect)
                 Text(L10n.text("关闭时：按一次打开轮盘，点击目标或再次按快捷键关闭。", "When off, press once to open the ring. Click a target to switch, or press again to close.")).font(.caption).foregroundStyle(.secondary)
                 Divider()
@@ -375,25 +395,44 @@ struct SettingsView: View {
 }
 
 struct ShortcutRecorder: NSViewRepresentable {
-    @Binding var shortcut: Shortcut
+    @Binding var shortcut: Shortcut?
+    init(shortcut: Binding<Shortcut?>) { _shortcut = shortcut }
+    init(shortcut: Binding<Shortcut>) {
+        _shortcut = Binding(get: { shortcut.wrappedValue }, set: { if let value = $0 { shortcut.wrappedValue = value } })
+    }
     func makeNSView(context: Context) -> RecorderButton {
         let button = RecorderButton()
         button.bezelStyle = .rounded
+        button.contentTintColor = .labelColor
+        button.font = .systemFont(ofSize: 13, weight: .medium)
         button.onRecord = { shortcut = $0 }
-        button.title = shortcut.display
+        button.title = shortcut?.display ?? L10n.text("录入快捷键", "Record shortcut")
         return button
     }
     func updateNSView(_ nsView: RecorderButton, context: Context) {
         nsView.onRecord = { shortcut = $0 }
-        if !nsView.recording { nsView.title = shortcut.display }
-        nsView.savedTitle = shortcut.display
+        nsView.savedTitle = shortcut?.display ?? L10n.text("录入快捷键", "Record shortcut")
+        if !nsView.recording { nsView.title = nsView.savedTitle }
     }
 }
 
 final class RecorderButton: NSButton {
-    var allowsUnmodified = false
+    static let recordingDidChange = Notification.Name("LumaRing.shortcutRecordingDidChange")
+    private var resignToken: NSObjectProtocol?
     var onRecord: ((Shortcut) -> Void)?
-    var recording = false
+    var recording = false {
+        didSet {
+            guard recording != oldValue else { return }
+            if recording, let window {
+                resignToken = NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: window, queue: .main) { [weak self] _ in
+                    self?.cancelRecording()
+                }
+            } else if let resignToken {
+                NotificationCenter.default.removeObserver(resignToken); self.resignToken = nil
+            }
+            NotificationCenter.default.post(name: Self.recordingDidChange, object: recording)
+        }
+    }
     var savedTitle = ""
     override var acceptsFirstResponder: Bool { true }
     override func mouseDown(with event: NSEvent) {
@@ -407,25 +446,30 @@ final class RecorderButton: NSButton {
         beginRecording()
     }
     private func beginRecording() {
-        recording = true; title = L10n.text("按下组合键…", "Press a shortcut…")
         window?.makeFirstResponder(self)
+        recording = true; title = L10n.text("按下快捷键…", "Press a shortcut…")
+    }
+    private func cancelRecording() { recording = false; title = savedTitle }
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        if newWindow == nil { cancelRecording() }
+        super.viewWillMove(toWindow: newWindow)
     }
     override func resignFirstResponder() -> Bool {
-        recording = false; title = savedTitle
+        cancelRecording()
         return super.resignFirstResponder()
     }
     override func keyDown(with event: NSEvent) {
         guard recording else { super.keyDown(with: event); return }
         if event.keyCode == 53 { recording = false; title = savedTitle; return }
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        guard allowsUnmodified || !flags.intersection([.command, .option, .control]).isEmpty else { title = L10n.text("请加 ⌃ / ⌥ / ⌘", "Include ⌃ / ⌥ / ⌘"); return }
         var modifiers: UInt32 = 0
         if flags.contains(.command) { modifiers |= UInt32(cmdKey) }
         if flags.contains(.option) { modifiers |= UInt32(optionKey) }
         if flags.contains(.control) { modifiers |= UInt32(controlKey) }
         if flags.contains(.shift) { modifiers |= UInt32(shiftKey) }
         let special: [UInt16: String] = [49: "Space", 48: "Tab", 36: "Return", 51: "⌫", 117: "⌦", 123: "←", 124: "→", 125: "↓", 126: "↑",
-            122: "F1", 120: "F2", 99: "F3", 118: "F4", 96: "F5", 97: "F6", 98: "F7", 100: "F8", 101: "F9", 109: "F10", 103: "F11", 111: "F12"]
+            122: "F1", 120: "F2", 99: "F3", 118: "F4", 96: "F5", 97: "F6", 98: "F7", 100: "F8", 101: "F9", 109: "F10", 103: "F11", 111: "F12",
+            105: "F13", 107: "F14", 113: "F15", 106: "F16", 64: "F17", 79: "F18", 80: "F19", 90: "F20"]
         let name = special[event.keyCode] ?? event.charactersIgnoringModifiers?.uppercased() ?? "Key \(event.keyCode)"
         recording = false
         let shortcut = Shortcut(keyCode: UInt32(event.keyCode), modifiers: modifiers, label: name)
