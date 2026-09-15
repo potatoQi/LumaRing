@@ -4,7 +4,7 @@
 
 ## 发布方式
 
-本项目采用 **本地打包和更新签名 → 手动上传 GitHub Release → 手动发布**。使用固定的自签名证书，不需要 Apple 开发者会员、Apple 发布证书、公证凭据或 GitHub Secrets。GitHub Actions 只执行测试与构建，没有自动发布工作流。
+本项目采用 **本地打包和更新签名 → 手动上传 GitHub Release → 手动发布**。使用固定的自签名证书，打包不需要 Apple 开发者会员、Apple 发布证书、公证凭据或 GitHub Secrets。GitHub Actions 执行测试与构建，并在正式 Release 发布后同步 Homebrew Tap；不会自动发布应用。
 
 首次安装使用 **DMG**，打开后将 LumaRing 拖到旁边的 Applications。**ZIP** 专供 Sparkle 更新使用。两者包含同一次构建的应用，DMG 不会绕过 macOS 签名和授权检查。
 
@@ -82,7 +82,9 @@ DMG 是对用户提供的主要下载，ZIP 是 appcast 中的更新包。生成
 2. 在 GitHub 的 Releases 页面新建草稿，选择该标签，填写对应的更新说明。
 3. 上传成品目录中的 **全部四个文件**，不要重命名、重压缩或手改签名后的 appcast。下载说明优先链接 DMG。
 4. 检查版本、说明和附件后，点击 **Publish release**，设为最新正式版本。预发布与草稿不会作为稳定版更新源。
-5. 同步 [Homebrew Tap](https://github.com/potatoQi/homebrew-tap) 中的 `Casks/lumaring.rb`：更新版本号和已发布 DMG 的 SHA-256，验证后提交并推送。GitHub Release 不会自动更新 Tap。
+5. 查看 Actions 中的 **Update Homebrew Tap** 是否成功。正式 Release 发布后，它会读取最新稳定版，下载 DMG 与 `SHA256SUMS`，核对校验值，再自动更新并推送 [Homebrew Tap](https://github.com/potatoQi/homebrew-tap) 的 `Casks/lumaring.rb`。草稿和预发布不会触发同步，不允许降级或替换同版本安装包。失败时修复原因后，在 Actions 页面选择 **Run workflow** 重试；已有相同版本和校验值时不会创建提交。
+
+Tap 同步使用 LumaRing 仓库 Secret `HOMEBREW_TAP_DEPLOY_KEY`，对应 Tap 仓库中具有写入权限的专用 Deploy Key，仅能访问该 Tap。它与应用代码签名、Sparkle 签名无关。更换或撤销此密钥时，需要同步更新这两处；不要将私钥写入仓库。
 
 更新客户端从固定的 GitHub HTTPS 地址读取签名 appcast，并验证 ZIP 更新包。仅上传 DMG 可供用户手动安装；自动更新必须同时提供 ZIP 和对应的 appcast。
 
