@@ -94,6 +94,9 @@ final class AppLogTests: XCTestCase {
         defer { cleanup(log, folder) }
         log.setEnabled(true)
         for _ in 0..<80 { log.record("before_clear", category: .app) }
+        // Clearing cancels queued entries; wait for the files this test intends to clear.
+        let beforeClear = await log.status()
+        XCTAssertGreaterThan(beforeClear.bytes, 0)
         let cleared = await log.clear()
         XCTAssertTrue(cleared)
         XCTAssertTrue(try rows(log.directory).isEmpty)
