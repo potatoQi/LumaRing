@@ -35,6 +35,7 @@ enum TrackpadTap: Int, Codable, CaseIterable {
 struct Options: Codable {
     static let centerTitleSizeRange = 10...16
     var theme = AppTheme.system
+    var ringMaterial = RingMaterialStyle.defaultValue
     var centerTitleSize = 12
     var loggingEnabled = true
     var actionProfiles: [ActionProfile] = []
@@ -75,12 +76,13 @@ struct Options: Codable {
 
     init() {}
     private enum CodingKeys: String, CodingKey {
-        case theme, centerTitleSize, loggingEnabled, actionProfiles, actionRingApps, shortcut, actionShortcut, holdToSelect, trackpadTap, threeFingerPinch, ringSize, previews, previewWidth, includeMinimized, sortByName, excludedBundleIDs, appPageSize, windowPageSize, appContentModes, launcherApps
+        case theme, ringMaterial, centerTitleSize, loggingEnabled, actionProfiles, actionRingApps, shortcut, actionShortcut, holdToSelect, trackpadTap, threeFingerPinch, ringSize, previews, previewWidth, includeMinimized, sortByName, excludedBundleIDs, appPageSize, windowPageSize, appContentModes, launcherApps
     }
     private enum LegacyCodingKeys: String, CodingKey { case fourFingerTap }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         theme = AppTheme(rawValue: (try? c.decode(String.self, forKey: .theme)) ?? "") ?? .system
+        ringMaterial = (RingMaterialStyle(rawValue: (try? c.decode(String.self, forKey: .ringMaterial)) ?? "") ?? .defaultValue).resolved
         centerTitleSize = min(Self.centerTitleSizeRange.upperBound, max(Self.centerTitleSizeRange.lowerBound,
             (try? c.decode(Int.self, forKey: .centerTitleSize)) ?? 12))
         loggingEnabled = (try? c.decode(Bool.self, forKey: .loggingEnabled)) ?? true

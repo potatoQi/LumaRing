@@ -32,6 +32,8 @@ import SwiftUI
            let icon = NSImage(contentsOf: iconURL) { NSApp.applicationIconImage = icon }
         UpdateService.shared.start()
         configureMainMenu()
+        Preferences.shared.$options.map(\.ringMaterial).removeDuplicates().dropFirst()
+            .receive(on: RunLoop.main).sink { [weak self] _ in self?.configureMainMenu() }.store(in: &subscriptions)
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem.button?.image = NSImage(systemSymbolName: "circle.hexagongrid", accessibilityDescription: L10n.text("LumaRing 应用与窗口轮盘", "LumaRing app and window switcher"))
         statusItem.button?.image?.isTemplate = true
@@ -156,6 +158,7 @@ import SwiftUI
         let applicationItem = NSMenuItem()
         let applicationMenu = NSMenu()
         applicationMenu.addItem(withTitle: L10n.text("设置…", "Settings…"), action: #selector(settingsAction), keyEquivalent: "").target = self
+        applicationMenu.addItem(materialMenuItem())
         applicationMenu.addItem(withTitle: L10n.text("检查更新…", "Check for Updates…"), action: #selector(UpdateService.checkForUpdates(_:)), keyEquivalent: "").target = UpdateService.shared
         applicationMenu.addItem(withTitle: L10n.text("退出 LumaRing", "Quit LumaRing"), action: #selector(quit), keyEquivalent: "").target = self
         applicationItem.submenu = applicationMenu
@@ -192,11 +195,32 @@ import SwiftUI
         let updateItem = NSMenuItem(title: L10n.text("检查更新…", "Check for Updates…"), action: #selector(UpdateService.checkForUpdates(_:)), keyEquivalent: "")
         updateItem.target = UpdateService.shared
         menu.insertItem(updateItem, at: 1)
+        menu.insertItem(materialMenuItem(), at: 1)
         statusItem.menu = menu
         statusItem.button?.performClick(nil)
     }
 
     func menuDidClose(_ menu: NSMenu) { statusItem.menu = nil }
+    private func materialMenuItem() -> NSMenuItem {
+        let item = NSMenuItem(title: L10n.text("轮盘材质", "Ring Material"), action: nil, keyEquivalent: "")
+        let submenu = NSMenu()
+        submenu.autoenablesItems = false
+        for style in RingMaterialStyle.allCases {
+            let choice = NSMenuItem(title: style.title, action: #selector(changeMaterial(_:)), keyEquivalent: "")
+            choice.target = self
+            choice.representedObject = style.rawValue
+            choice.isEnabled = style.isAvailable
+            choice.state = style == Preferences.shared.options.ringMaterial.resolved ? .on : .off
+            submenu.addItem(choice)
+        }
+        item.submenu = submenu
+        return item
+    }
+    @objc private func changeMaterial(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let style = RingMaterialStyle(rawValue: raw), style.isAvailable else { return }
+        Preferences.shared.options.ringMaterial = style
+    }
     @objc private func settingsAction() { showSettings() }
     @objc private func quit() { ring.dismiss(); NSApp.terminate(nil) }
 

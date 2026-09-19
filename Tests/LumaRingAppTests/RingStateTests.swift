@@ -337,7 +337,7 @@ final class RingStateTests: XCTestCase {
         XCTAssertEqual(view.appPage, 1)
     }
 
-    @MainActor func testRenderSolidThemesAndDensePages() async throws {
+    @MainActor func testRenderThemesAndDensePages() async throws {
         guard let directory = ProcessInfo.processInfo.environment["LUMARING_SNAPSHOT_DIR"] else { return }
         _ = NSApplication.shared
         try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)

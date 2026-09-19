@@ -60,7 +60,7 @@ import LumaRingCore
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        addSubview(material); addSubview(artwork)
+        addSubview(material); material.content.addSubview(artwork)
         artwork.render = { [weak self] in self?.drawRing() }
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -140,7 +140,7 @@ import LumaRingCore
         scrollTime = event.timestamp; turnPage(event.scrollingDeltaY < 0 ? 1 : -1)
     }
     func drawRing(inactive: Bool = false, launcherPaging: Bool = false) {
-        let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        let dark = NSAppearance.currentDrawing().bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
         if !inactive, let index = visible.firstIndex(where: { $0.id == hover }), let context = NSGraphicsContext.current?.cgContext {
             NSColor.controlAccentColor.withAlphaComponent(dark ? 0.25 : 0.12).setFill()
             context.addPath(RingGeometry.appSectorPath(index: index, count: visible.count)); context.fillPath()

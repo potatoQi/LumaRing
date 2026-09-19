@@ -85,7 +85,7 @@ extension RingView {
     }
 
     func drawLauncher() {
-        let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        let dark = NSAppearance.currentDrawing().bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
         let center = RingGeometry.center
         let disk = NSBezierPath(ovalIn: NSRect(x: center.x - 118, y: center.y - 118, width: 236, height: 236))
         launcherInnerArtwork?(launcherPages > 1)

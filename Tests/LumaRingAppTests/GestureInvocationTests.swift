@@ -9,7 +9,7 @@ final class GestureInvocationTests: XCTestCase {
             windowNumber: 0, context: nil, eventNumber: 0, clickCount: clicks, pressure: 0)!
     }
 
-    @MainActor func testResidualSecondaryClickCannotOpenSettingsButFreshClickCan() {
+    @MainActor func testCenterSecondaryClickDoesNotOpenSettingsEvenAfterInvocationFenceExpires() {
         let view = RingView(frame: NSRect(x: 0, y: 0, width: 480, height: 480))
         view.reset(apps: [], options: Options())
         var settings = 0
@@ -18,8 +18,10 @@ final class GestureInvocationTests: XCTestCase {
         view.rightMouseDown(with: event(.rightMouseDown, time: 9.99))
         view.rightMouseDown(with: event(.rightMouseDown, time: 10.08))
         XCTAssertEqual(settings, 0)
+        XCTAssertTrue(view.acceptsPointerEvent(event(.rightMouseDown, time: 10.3)))
         view.rightMouseDown(with: event(.rightMouseDown, time: 10.3))
-        XCTAssertEqual(settings, 1)
+        XCTAssertEqual(settings, 0)
+        XCTAssertFalse(view.isContextMenuOpen)
     }
 
     @MainActor func testResidualPrimaryAndDoubleClickCannotActivateOrOpenLauncher() {

@@ -67,6 +67,7 @@ import LumaRingCore
     private let diskMaterial = RingMaterial()
     private let diskArtwork = RingArtwork()
     private let arcArtwork = RingArtwork()
+    private let dragArtwork = RingArtwork()
     private let arcGroup = NSView()
 
     override init(frame frameRect: NSRect) {
@@ -74,11 +75,13 @@ import LumaRingCore
         wantsLayer = true
         arcGroup.wantsLayer = true
         addSubview(diskMaterial)
-        addSubview(arcGroup)
+        diskMaterial.content.addSubview(arcGroup)
         arcGroup.addSubview(arcArtwork)
-        addSubview(diskArtwork)
+        diskMaterial.content.addSubview(diskArtwork)
+        addSubview(dragArtwork)
         diskArtwork.render = { [weak self] in self?.drawDisk() }
         arcArtwork.render = { [weak self] in self?.drawWindows() }
+        dragArtwork.render = { [weak self] in self?.drawDrag() }
         arcGroup.isHidden = true
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -86,6 +89,7 @@ import LumaRingCore
     override func layout() {
         super.layout()
         diskMaterial.frame = bounds; diskArtwork.frame = bounds
+        dragArtwork.frame = bounds
         arcGroup.frame = bounds; arcArtwork.frame = bounds
         diskMaterial.setShape(surfacePath)
     }
@@ -274,6 +278,7 @@ import LumaRingCore
     func refreshArtwork() {
         diskArtwork.needsDisplay = true
         arcArtwork.needsDisplay = true
+        dragArtwork.needsDisplay = true
     }
 
     override func updateTrackingAreas() {
@@ -516,7 +521,7 @@ import LumaRingCore
     override func rightMouseDown(with event: NSEvent) {
         guard acceptsPointerEvent(event) else { return }
         guard !showsLauncher, !isPointerDown, !isEditingName else { return }
-        guard let menu = contextMenu(at: point(event)) else { onSettings?(); return }
+        guard let menu = contextMenu(at: point(event)) else { return }
         onPointerInteraction?()
         cancelHover()
         onHoverWindow?(nil)
@@ -599,7 +604,7 @@ import LumaRingCore
     private var ink: NSColor { .labelColor }
     private var muted: NSColor { .secondaryLabelColor }
     private var accent: NSColor { .controlAccentColor }
-    private var dark: Bool { effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua }
+    private var dark: Bool { diskArtwork.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua }
 
     private func drawDisk() {
         if showsLauncher, launcherInnerArtwork != nil { drawLauncher(); return }
@@ -623,6 +628,10 @@ import LumaRingCore
         for (text, rect) in badges { drawBadge(text, on: rect) }
         if showsLauncher { drawLauncher(); return }
         drawCenter()
+    }
+
+    // Drag feedback must remain visible beyond the material's clipped contour.
+    private func drawDrag() {
         if let app = draggedApp {
             let size = appIconSize
             let point = CGPoint(x: min(max(dragPoint.x, size), bounds.maxX - size), y: min(max(dragPoint.y, size), bounds.maxY - size))
@@ -774,7 +783,7 @@ import LumaRingCore
             add(L10n.text("上一页应用", "Previous apps"), help: L10n.text("滚动或点击翻页", "Scroll or click to change pages"), rect: NSRect(x: pageControlsRect.minX, y: pageControlsRect.minY, width: 22, height: 14)) { [weak self] in self?.changeAppPage(-1) }
             add(L10n.text("下一页应用", "Next apps"), help: L10n.text("滚动或点击翻页", "Scroll or click to change pages"), rect: NSRect(x: c.x, y: pageControlsRect.minY, width: 22, height: 14)) { [weak self] in self?.changeAppPage(1) }
         }
-        add(L10n.text("设置", "Settings"), help: L10n.text("右键圆盘打开设置", "Right-click the ring to open settings"), rect: NSRect(x: c.x - 30, y: c.y - 15, width: 60, height: 38)) { [weak self] in self?.onSettings?() }
+        add(L10n.text("设置", "Settings"), help: L10n.text("打开设置", "Open settings"), rect: NSRect(x: c.x - 30, y: c.y - 15, width: 60, height: 38)) { [weak self] in self?.onSettings?() }
         setAccessibilityElement(false)
         setAccessibilityChildren(items)
     }

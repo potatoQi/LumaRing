@@ -81,6 +81,11 @@ struct SettingsView: View {
                         Text(theme.title).tag(theme)
                     }
                 }.pickerStyle(.segmented)
+                Picker(L10n.text("轮盘材质", "Ring material"), selection: $preferences.options.ringMaterial) {
+                    ForEach(RingMaterialStyle.allCases, id: \.self) { style in
+                        Text(style.title).tag(style).disabled(!style.isAvailable)
+                    }
+                }.pickerStyle(.menu)
                 Stepper(value: $preferences.options.centerTitleSize, in: Options.centerTitleSizeRange) {
                     HStack {
                         Text(L10n.text("轮盘中央标题字号", "Ring center title size"))
@@ -362,7 +367,7 @@ struct SettingsView: View {
                 Text(L10n.text("点击菜单栏图标打开设置；使用快捷键或触控板手势呼出轮盘。", "Click the menu bar icon to open settings. Use the shortcut or a trackpad gesture to open the ring."))
                 Text(L10n.text("在圆盘上滚动可翻应用页，在圆弧上滚动可翻窗口页；也可点击中心的左右箭头。", "Scroll over the ring to page through apps, or over the arc to page through windows. You can also click the center arrows."))
                 Text(L10n.text("窗口和标签页按名称排序；悬停窗口可查看预览。右键窗口或标签页可关闭，或通过“修改”设置名称和扇形颜色；留空名称恢复原标题。", "Windows and tabs are sorted by name. Hover over a window to preview it; right-click a window or tab to close it or edit its name and sector color. Leave the name empty to restore its original title."))
-                Text(L10n.text("右键应用可新建窗口、选择二级轮盘显示内容或退出应用；右键空白处打开设置。", "Right-click an app to create a window, choose secondary ring content, or quit. Right-click empty space for settings."))
+                Text(L10n.text("右键应用可新建窗口、选择二级轮盘显示内容或退出应用。", "Right-click an app to create a window, choose secondary ring content, or quit."))
                 Text(L10n.text("应用内轮盘中，或全局轮盘未展开二级轮盘时，按住 Option 显示常用应用，松开返回。在“应用管理”中添加应用。", "Hold Option for favorites in the action ring or the global ring with no secondary ring open; release to return. Add apps in App Management."))
             }
             card(L10n.text("当前应用的快捷操作", "Actions for the Current App"), symbol: "keyboard") {
