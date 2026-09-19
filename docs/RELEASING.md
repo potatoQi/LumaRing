@@ -50,6 +50,8 @@ swift package --disable-keychain --disable-netrc resolve
 
 ## 本地生成发布文件
 
+构建需要 Xcode 26 或更新版本提供的 macOS SDK，以编译液态玻璃接口；应用最低系统要求仍为 macOS 14，旧系统运行时使用磨砂材质。
+
 ```bash
 swift test --disable-keychain --disable-netrc
 python3 -m unittest discover -s Tests/ReleaseTools -v
