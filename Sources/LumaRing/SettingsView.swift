@@ -132,7 +132,7 @@ struct SettingsView: View {
                     Text(L10n.text("两个轮盘快捷键不能相同。", "The two ring shortcuts must be different.")).font(.caption).foregroundStyle(.orange)
                 } else if let error = preferences.actionShortcutError { Text(error).font(.caption).foregroundStyle(.orange) }
                 Toggle(L10n.text("按住快捷键选择，松开立即切换", "Hold the shortcut to select; release to switch"), isOn: $preferences.options.holdToSelect)
-                Text(L10n.text("关闭时：按一次打开轮盘，点击目标或再次按快捷键关闭。", "When off, press once to open the ring. Click a target to switch, or press again to close.")).font(.caption).foregroundStyle(.secondary)
+                Text(L10n.text("关闭时：按一次打开轮盘，点击目标切换，或点击轮盘外收起。", "When off, press once to open the ring. Click a target to switch, or click outside to dismiss.")).font(.caption).foregroundStyle(.secondary)
                 Divider()
                 Picker(L10n.text("触控板呼出轮盘", "Open the ring with trackpad"), selection: $preferences.options.trackpadTap) {
                     ForEach(TrackpadTap.allCases, id: \.self) { Text($0.label).tag($0) }
@@ -357,28 +357,35 @@ struct SettingsView: View {
 
     private var guide: some View {
         Group {
-            card(preferences.options.holdToSelect ? L10n.text("按住 · 移动 · 松开", "Hold · Point · Release") : L10n.text("呼出 · 移动 · 点击", "Open · Point · Click"), symbol: "cursorarrow.motionlines") {
-                Text(preferences.options.holdToSelect ? L10n.text("1  按住 \(preferences.options.shortcut.display)，呼出圆盘。", "1  Hold \(preferences.options.shortcut.display) to open the ring.") : L10n.text("1  按一次 \(preferences.options.shortcut.display)，呼出圆盘。", "1  Press \(preferences.options.shortcut.display) to open the ring."))
-                Text(L10n.text("2  把鼠标移到目标 App。有多个窗口或标签页时，会展开紧贴圆盘的圆弧。", "2  Point at an app. An attached arc opens when it has multiple windows or tabs."))
-                Text(preferences.options.holdToSelect ? L10n.text("3  指向 App 或具体窗口，松开呼出快捷键，立即切换。", "3  Point at an app or window, then release the shortcut to switch.") : L10n.text("3  点击 App 或具体窗口，立即切换。", "3  Click an app or window to switch."))
-                Text(preferences.options.holdToSelect ? L10n.text("没有选中目标时松开，只会关闭圆盘。", "Releasing without a target closes the ring.") : L10n.text("再次按呼出快捷键或点击圆盘外关闭。", "Press the shortcut again or click outside the ring to close it.")).font(.caption).foregroundStyle(.secondary)
+            card(L10n.text("常用操作", "Common Controls"), symbol: "circle.circle") {
+                guideRow(preferences.options.shortcut.display, L10n.text("呼出 / 收起轮盘", "Open / dismiss the ring"))
+                guideRow(L10n.text("三指或四指轻点后抬起", "Tap with three or four fingers and lift"), L10n.text("呼出 / 收起轮盘", "Open / dismiss the ring"))
+                guideRow(L10n.text("未展开二级轮盘时，按住 Option", "Hold Option with no secondary ring open"), L10n.text("显示常用应用外圈，松开返回", "Show favorites; release to return"))
+                guideRow(L10n.text("全局轮盘无二级轮盘时，双击中心", "Double-click the global ring’s center with no secondary ring open"), L10n.text("展开 / 收起常用应用", "Show / hide favorites"))
+                guideRow(L10n.text("三指向内捏合后抬起", "Pinch inward with three fingers and lift"), L10n.text("最小化当前窗口；在 LumaRing 中关闭设置", "Minimize the current window; close LumaRing Settings"))
+                guideRow(L10n.text("轮盘打开时，双击左 Option", "Double-tap left Option with the ring open"), L10n.text("切换全局 / 应用内轮盘", "Switch between apps and app actions"))
+                guideRow(L10n.text("滚动，或点击中心翻页箭头", "Scroll, or click the center paging arrows"), L10n.text("翻页", "Change pages"))
             }
-            card(L10n.text("用鼠标操作", "Mouse Controls"), symbol: "computermouse") {
-                Text(L10n.text("点击菜单栏图标打开设置；使用快捷键或触控板手势呼出轮盘。", "Click the menu bar icon to open settings. Use the shortcut or a trackpad gesture to open the ring."))
-                Text(L10n.text("在圆盘上滚动可翻应用页，在圆弧上滚动可翻窗口页；也可点击中心的左右箭头。", "Scroll over the ring to page through apps, or over the arc to page through windows. You can also click the center arrows."))
-                Text(L10n.text("窗口和标签页按名称排序；悬停窗口可查看预览。右键窗口或标签页可关闭，或通过“修改”设置名称和扇形颜色；留空名称恢复原标题。", "Windows and tabs are sorted by name. Hover over a window to preview it; right-click a window or tab to close it or edit its name and sector color. Leave the name empty to restore its original title."))
-                Text(L10n.text("右键应用可新建窗口、选择二级轮盘显示内容或退出应用。", "Right-click an app to create a window, choose secondary ring content, or quit."))
-                Text(L10n.text("应用内轮盘中，或全局轮盘未展开二级轮盘时，按住 Option 显示常用应用，松开返回。在“应用管理”中添加应用。", "Hold Option for favorites in the action ring or the global ring with no secondary ring open; release to return. Add apps in App Management."))
+            card(L10n.text("键盘选择", "Keyboard Navigation"), symbol: "keyboard") {
+                guideRow("Tab / Shift + Tab", L10n.text("顺时针 / 逆时针选择；长按连续移动，松开停止", "Select clockwise / counterclockwise; hold to repeat, release to stop"))
+                guideRow(L10n.text("` / ~ 键（数字 1 左侧）", "` / ~ key (left of 1)"), L10n.text("按一次进入二级轮盘，再按一次返回", "Press to enter the secondary ring; press again to return"))
+                guideRow(L10n.text("回车", "Return"), L10n.text("进入选中目标，或执行选中操作", "Go to the selection, or run the selected action"))
             }
-            card(L10n.text("当前应用的快捷操作", "Actions for the Current App"), symbol: "keyboard") {
-                Text(L10n.text("在“快捷操作”中为应用添加命名的快捷键，使用上下箭头调整顺序。", "In Actions, add named shortcuts for each app and use the arrows to reorder them."))
-                Text(L10n.text("轮盘打开时，双击左 Option 切换模式，再点击操作。操作模式不抢焦点；仅提供窗口信息的应用使用窗口级校验。", "With the ring open, double-tap left Option to switch modes, then click an action. Actions do not take focus; apps exposing only window focus use window-level verification."))
-            }
-            card(L10n.text("权限", "Permissions"), symbol: "lock") {
-                Text(L10n.text("窗口列表与切换需要辅助功能权限；窗口图片预览需要屏幕录制权限。", "Window lists and switching require Accessibility access. Image previews require Screen Recording access."))
-                Text(L10n.text("默认显示窗口；在“应用管理”中可为 Edge 和 Chrome 选择标签页，并连接浏览器。标签页读取和切换需要该浏览器的自动化权限。", "Windows are shown by default. In App Management, select Tabs for Edge or Chrome and connect the browser. Reading and switching tabs requires Automation access.")).font(.caption).foregroundStyle(.secondary)
+            card(L10n.text("窗口与应用管理", "Manage Windows & Apps"), symbol: "macwindow") {
+                guideRow(L10n.text("点击二级项目的 ×，或右键 → 关闭", "Click × on a secondary item, or right-click → Close"), L10n.text("关闭该窗口或标签页", "Close that window or tab"))
+                guideRow(L10n.text("将应用图标拖出一级轮盘，或右键 → 退出应用", "Drag an app icon out of the primary ring, or right-click → Quit App"), L10n.text("退出该应用", "Quit the app"))
+                guideRow(L10n.text("右键应用 → 新建窗口", "Right-click an app → New Window"), L10n.text("新建窗口（应用支持时显示）", "Create a window, when supported"))
+                guideRow(L10n.text("右键应用 → 二级轮盘显示", "Right-click an app → Secondary Ring Shows"), L10n.text("选择窗口或标签页（支持的应用）", "Choose windows or tabs, for supported apps"))
+                guideRow(L10n.text("右键窗口或标签页 → 修改", "Right-click a window or tab → Edit"), L10n.text("修改名称和扇形颜色，保存生效", "Change the name and sector color, then save"))
             }
         }
+    }
+
+    private func guideRow(_ action: String, _ result: String) -> some View {
+        HStack(alignment: .top, spacing: 20) {
+            Text(action).frame(width: 265, alignment: .leading)
+            Text(result).frame(maxWidth: .infinity, alignment: .leading)
+        }.fixedSize(horizontal: false, vertical: true)
     }
 
     private func refresh() {

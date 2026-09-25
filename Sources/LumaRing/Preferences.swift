@@ -16,6 +16,14 @@ struct Shortcut: Codable, Equatable {
         if modifiers & UInt32(cmdKey) != 0 { result += "⌘" }
         return result + label
     }
+    func matches(_ event: NSEvent) -> Bool {
+        var modifiers: UInt32 = 0
+        if event.modifierFlags.contains(.command) { modifiers |= UInt32(cmdKey) }
+        if event.modifierFlags.contains(.option) { modifiers |= UInt32(optionKey) }
+        if event.modifierFlags.contains(.control) { modifiers |= UInt32(controlKey) }
+        if event.modifierFlags.contains(.shift) { modifiers |= UInt32(shiftKey) }
+        return matches(keyCode: UInt32(event.keyCode), modifiers: modifiers)
+    }
     func matches(keyCode: UInt32, modifiers: UInt32) -> Bool {
         self.keyCode == keyCode && self.modifiers == modifiers
     }

@@ -25,6 +25,7 @@ struct AppItemCount: Equatable {
     private let read: Reader
     private let cancelRead: () -> Void
     private var generation = 0
+    private var resolved: Set<pid_t> = []
 
     init(read: @escaping Reader, cancel: @escaping () -> Void) {
         self.read = read
@@ -58,7 +59,9 @@ struct AppItemCount: Equatable {
 
     private func readNext(_ apps: ArraySlice<AppRecord>, options: Options, ticket: Int,
                           completion: @escaping (pid_t, AppItemCount?) -> Void) {
-        guard ticket == generation, let app = apps.first else { return }
+        guard ticket == generation else { return }
+        let apps = apps.drop(while: { resolved.contains($0.pid) })
+        guard let app = apps.first else { return }
         read(app, options.contentMode(for: app.bundleID), options.includeMinimized) { [weak self] result in
             guard let self, ticket == self.generation else { return }
             completion(app.pid, result)
@@ -66,8 +69,13 @@ struct AppItemCount: Equatable {
         }
     }
 
+    /// A full secondary query already supplied this page's count. Skip a queued
+    /// duplicate, without cancelling other apps or retaining window snapshots.
+    func markResolved(_ pid: pid_t) { resolved.insert(pid) }
+
     func cancelAndClear() {
         generation += 1
+        resolved.removeAll()
         cancelRead()
     }
 }

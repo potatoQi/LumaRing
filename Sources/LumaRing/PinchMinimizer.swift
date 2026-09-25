@@ -7,7 +7,7 @@ import LumaRingCore
 @MainActor final class PinchMinimizer {
     // The main actor retains this immutable handle; all AX access stays on queue.
     private struct Target: @unchecked Sendable { let element: AXUIElement }
-    private let queue = DispatchQueue(label: "local.lumaring.pinch-minimize", qos: .userInitiated)
+    private let queue = DispatchQueue(label: "local.lumaring.pinch-minimize", qos: .userInitiated, autoreleaseFrequency: .workItem)
     private let foreground: () -> pid_t?
     private let allowed: () -> Bool
     private let capture: (pid_t, CancellationFlag) -> AXUIElement?

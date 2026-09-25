@@ -2,10 +2,10 @@ import AppKit
 import LumaRingCore
 
 @MainActor final class WindowPreview {
-    private let panel: NSPanel
+    private var panel: NSPanel?
     let view = WindowPreviewView()
-    init() {
-        panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 840, height: 630), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+    private func makePanel() -> NSPanel {
+        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 840, height: 630), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.level = NSWindow.Level(rawValue: NSWindow.Level.popUpMenu.rawValue + 1)
         panel.isOpaque = false; panel.backgroundColor = .clear; panel.hasShadow = true
         panel.ignoresMouseEvents = true
@@ -13,8 +13,11 @@ import LumaRingCore
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle, .stationary]
         panel.isReleasedWhenClosed = false
         panel.contentView = view
+        return panel
     }
     func show(window: WindowRecord, image: NSImage?, message: String, anchor: CGRect, occupied: CGRect, screen: CGRect, preferredSize: CGSize) {
+        let panel = panel ?? makePanel()
+        self.panel = panel
         let frame = PreviewPlacement.frame(anchor: anchor, avoiding: occupied, screen: screen, preferredSize: preferredSize)
         view.title = window.displayTitle; view.image = image; view.message = message
         panel.setFrame(frame, display: false)
@@ -23,11 +26,12 @@ import LumaRingCore
         panel.orderFrontRegardless()
     }
     var capturePixelSize: CGSize {
-        CGSize(width: max(1, view.bounds.width - 24) * panel.backingScaleFactor,
-               height: max(1, view.bounds.height - 76) * panel.backingScaleFactor)
+        let scale = panel?.backingScaleFactor ?? 1
+        return CGSize(width: max(1, view.bounds.width - 24) * scale,
+                      height: max(1, view.bounds.height - 76) * scale)
     }
     func dismiss() {
-        panel.orderOut(nil)
+        panel?.orderOut(nil)
         view.image = nil; view.title = ""; view.message = ""
     }
 }

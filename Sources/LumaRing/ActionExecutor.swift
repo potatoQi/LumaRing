@@ -119,7 +119,7 @@ enum ActionFocusAccess {
 /// Captures and checks AX identity off the render thread. No activating apps,
 /// restoring focus, reading text/selection, command strings or automatic retries.
 @MainActor final class ActionExecutor {
-    private let queue = DispatchQueue(label: "local.lumaring.actions", qos: .userInitiated)
+    private let queue = DispatchQueue(label: "local.lumaring.actions", qos: .userInitiated, autoreleaseFrequency: .workItem)
     private var flag: CancellationFlag?
     private(set) var focus: ActionFocus?
     private let capture: (pid_t) -> ActionFocus?

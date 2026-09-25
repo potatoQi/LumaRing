@@ -25,7 +25,7 @@ enum WindowResult {
 /// A single worker keeps slow third-party accessibility servers off the UI thread.
 /// Each instance handles one app query at a time. Every IPC operation has a bounded timeout.
 final class WindowService {
-    private let queue = DispatchQueue(label: "local.lumaring.accessibility", qos: .userInitiated)
+    private let queue = DispatchQueue(label: "local.lumaring.accessibility", qos: .userInitiated, autoreleaseFrequency: .workItem)
     private var work: CancellationFlag?
     private var cache: [pid_t: (Date, WindowResult)] = [:] // main-thread confined
 

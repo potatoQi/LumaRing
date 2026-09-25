@@ -3,6 +3,22 @@ import AppKit
 @testable import LumaRing
 
 final class AppCountTests: XCTestCase {
+    @MainActor func testSecondaryResultsSkipQueuedCountsOnlyUntilPageRefresh() {
+        var pending: [(AppItemCount?) -> Void] = []
+        var requests: [pid_t] = []
+        let service = AppCountService(read: { app, _, _, done in
+            requests.append(app.pid); pending.append(done)
+        }, cancel: {})
+        let apps = [app(100), app(101), app(102)]
+        service.refresh(apps: apps, options: Options()) { _, _ in }
+        service.markResolved(101)
+        pending[0](.init(value: 2, limited: false))
+        XCTAssertEqual(requests, [100, 102], "The full query already provided app 101's count")
+        pending[1](nil)
+        service.refresh(apps: [apps[1]], options: Options()) { _, _ in }
+        XCTAssertEqual(requests, [100, 102, 101], "A new page pass must fetch fresh counts")
+    }
+
     private func app(_ pid: pid_t, bundleID: String = "test.app") -> AppRecord {
         AppRecord(pid: pid, bundleID: bundleID, name: "App \(pid)",
                   icon: NSImage(systemSymbolName: "app.fill", accessibilityDescription: nil)!

@@ -188,14 +188,14 @@ final class RingStateTests: XCTestCase {
         view.cancelHover()
     }
 
-    @MainActor func testRemovedKeysDoNotChangeOrActivateSelection() async {
+    @MainActor func testUnassignedKeysDoNotChangeOrActivateSelection() async {
         let view = RingView()
         let applications = apps(12)
         view.reset(apps: applications, options: Options())
         view.select(applications[0])
         var triggered = false
         view.onClose = { triggered = true }; view.onActivateApp = { _ in triggered = true }
-        for code: UInt16 in [48, 49, 36, 53, 123, 124, 125, 126, 116, 121, 0, 18] {
+        for code: UInt16 in [49, 53, 123, 124, 116, 121, 0, 18] {
             view.keyDown(with: key(code, text: code == 18 ? "1" : "a"))
         }
         XCTAssertEqual(view.selectedApp, 100)

@@ -42,6 +42,9 @@ import LumaRingCore
     private(set) var itemCounts: [pid_t: AppItemCount] = [:]
     private var countsFromSelection: Set<pid_t> = []
     private var hoveredApp: pid_t?
+    private var keyboardPointer: CGPoint?
+    private(set) var keyboardSecondary = false
+    private var pendingSecondary = false
     private var collapseWork: DispatchWorkItem?
     private enum PressTarget {
         case app(AppRecord, WindowRecord?, draggable: Bool)
@@ -69,6 +72,7 @@ import LumaRingCore
     private let arcArtwork = RingArtwork()
     private let dragArtwork = RingArtwork()
     private let arcGroup = NSView()
+    private let accessibleItems = RingAccessibility()
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -182,6 +186,7 @@ import LumaRingCore
 
     func reset(apps: [AppRecord], options: Options) {
         invocationClickDeadline = 0
+        endKeyboardNavigation()
         keepsSingleWindowArc = false; closingWindowIDs.removeAll()
         centerClickWork?.cancel(); centerClickWork = nil
         launcherPinned = false
@@ -235,6 +240,12 @@ import LumaRingCore
             windows = []; message = L10n.text("点击中心授权", "Click center for access")
         case .unavailable(let text):
             windows = []; message = text
+        }
+        if pendingSecondary {
+            pendingSecondary = false
+            enterSecondary()
+        } else if keyboardSecondary, !showsWindowArc {
+            keyboardSecondary = false
         }
         refresh()
     }
@@ -290,9 +301,13 @@ import LumaRingCore
 
     private func point(_ event: NSEvent) -> CGPoint { convert(event.locationInWindow, from: nil) }
 
-    override func mouseMoved(with event: NSEvent) { updateHover(at: point(event)) }
+    override func mouseMoved(with event: NSEvent) {
+        guard keyboardPointer != NSEvent.mouseLocation else { return }
+        updateHover(at: point(event))
+    }
 
     func updateHover(at p: CGPoint) {
+        endKeyboardNavigation()
         if hypot(p.x - RingGeometry.center.x, p.y - RingGeometry.center.y) >= RingGeometry.appInner {
             centerClickWork?.cancel(); centerClickWork = nil
         }
@@ -346,6 +361,7 @@ import LumaRingCore
 
     func clearSelection() {
         guard !isEditingName else { return }
+        endKeyboardNavigation()
         cancelHover()
         keepsSingleWindowArc = false
         selectedApp = nil; hoveredApp = nil; windows = []; hoveredWindow = nil; hoveredClose = nil
@@ -355,6 +371,8 @@ import LumaRingCore
     }
 
     override func mouseExited(with event: NSEvent) {
+        guard keyboardPointer != NSEvent.mouseLocation else { return }
+        endKeyboardNavigation()
         if showsLauncher { hoveredLauncher = nil; refreshArtwork() }
         else if !isPointerDown && !isContextMenuOpen && !isEditingName { clearSelection() }
     }
@@ -389,6 +407,7 @@ import LumaRingCore
     }
 
     func beginPointer(at p: CGPoint, clickCount: Int = 1) {
+        endKeyboardNavigation()
         guard !isEditingName else { return }
         centerClickWork?.cancel(); centerClickWork = nil
         // AppKit keeps counting rapid clicks at the same location (3, 4, ...).
@@ -545,6 +564,7 @@ import LumaRingCore
     }
 
     override func scrollWheel(with event: NSEvent) {
+        endKeyboardNavigation()
         guard !isPointerDown, !isContextMenuOpen, !isEditingName else { return }
         guard abs(event.scrollingDeltaY) > 0.1 || abs(event.scrollingDeltaX) > 0.1 else { return }
         let now = ProcessInfo.processInfo.systemUptime
@@ -581,7 +601,7 @@ import LumaRingCore
         setHoveredWindow(nil); refresh()
     }
 
-    // Selection stays mouse-only; Escape only cancels an in-progress pointer gesture.
+    // Escape retains only its existing pointer/favorites cancellation behavior.
     override func keyDown(with event: NSEvent) {
         if event.keyCode == 53, showsLauncher {
             endLauncherMode(); return
@@ -590,6 +610,84 @@ import LumaRingCore
             cancelPointerInteraction()
             refresh()
         }
+    }
+
+    private func endKeyboardNavigation() {
+        keyboardPointer = nil
+        keyboardSecondary = false
+        pendingSecondary = false
+    }
+
+    func navigate(_ command: RingNavigation) {
+        guard !isEditingName, !isContextMenuOpen, !isPointerDown else { return }
+        cancelHover()
+        centerClickWork?.cancel(); centerClickWork = nil
+        keyboardPointer = NSEvent.mouseLocation
+        hoveredClose = nil
+        switch command {
+        case .step(let direction):
+            pendingSecondary = false
+            if showsLauncher {
+                let current = launcherApps.firstIndex { $0.app.id == hoveredLauncher }
+                guard let next = RingNavigation.next(current: current, pageStart: launcherPage * 12,
+                    total: launcherApps.count, direction: direction) else { return }
+                launcherPage = next / 12
+                hoveredLauncher = launcherApps[next].app.id
+                refresh()
+            } else if keyboardSecondary || hoveredWindow != nil {
+                guard showsWindowArc else { keyboardSecondary = false; return }
+                keyboardSecondary = true
+                let current = windows.firstIndex { $0.id == hoveredWindow }
+                guard let next = RingNavigation.next(current: current, pageStart: windowPage * windowPageSize,
+                    total: windows.count, direction: direction) else { return }
+                let changedPage = windowPage != next / windowPageSize
+                windowPage = next / windowPageSize
+                // Update the arc before positioning the preview on the new page.
+                if changedPage { refresh() }
+                setHoveredWindow(windows[next])
+            } else {
+                let current = apps.firstIndex { $0.pid == hoveredApp }
+                guard let next = RingNavigation.next(current: current, pageStart: appPage * appPageSize,
+                    total: apps.count, direction: direction) else { return }
+                let page = next / appPageSize
+                let changed = page != appPage
+                if changed {
+                    countsFromSelection.removeAll()
+                    appPage = page
+                }
+                select(apps[next])
+                if changed { onVisibleAppsChanged?() }
+            }
+        case .toggleSecondary:
+            guard !showsLauncher else { return }
+            if keyboardSecondary || hoveredWindow != nil || pendingSecondary {
+                pendingSecondary = false
+                keyboardSecondary = false
+                setHoveredWindow(nil)
+                hoveredApp = selectedApp
+                refresh()
+            } else if loading, selectedApp != nil {
+                // Pressing again before the query finishes cancels entry.
+                pendingSecondary = true
+            } else { enterSecondary() }
+        case .activate:
+            if showsLauncher {
+                if let record = launcherApps.first(where: { $0.app.id == hoveredLauncher }), record.available {
+                    onLaunchApp?(record.app)
+                }
+            } else if let record = currentWindow {
+                if !closingWindowIDs.contains(record.id) { onActivateWindow?(record) }
+            } else if let app = apps.first(where: { $0.pid == hoveredApp }) {
+                onActivateApp?(app)
+            }
+        }
+    }
+
+    private func enterSecondary() {
+        guard showsWindowArc else { return }
+        keyboardSecondary = true
+        if currentWindow == nil { setHoveredWindow(visibleWindows.first) }
+        refresh()
     }
 
     func activateHovered() {
@@ -733,63 +831,49 @@ import LumaRingCore
     }
 
     private func rebuildAccessibility() {
-        guard let window else { return }
-        var items: [RingAccessibleItem] = []
-        func add(_ label: String, help: String, rect: NSRect, action: @escaping () -> Void) {
-            let item = RingAccessibleItem()
-            item.setAccessibilityRole(.button)
-            item.setAccessibilityEnabled(true)
-            item.setAccessibilityLabel(label)
-            item.setAccessibilityHelp(help)
-            item.setAccessibilityParent(self)
-            item.setAccessibilityFrame(window.convertToScreen(convert(rect, to: nil)))
-            item.action = action; items.append(item)
+        guard window != nil else { accessibleItems.clear(in: self); return }
+        var items: [RingAccessibility.Entry] = []
+        func add(_ id: String, _ label: String, help: String, rect: NSRect, enabled: Bool = true, action: @escaping () -> Void) {
+            items.append(.init(id: id, label: label, help: help, rect: rect, enabled: enabled, action: action))
         }
         if showsLauncher {
             for (i, record) in visibleLauncherApps.enumerated() {
                 let p = launcherPoint(i)
-                add(record.app.name, help: L10n.text("打开应用", "Open app"),
-                    rect: NSRect(x: p.x - 22, y: p.y - 22, width: 44, height: 44)) { [weak self] in
+                add("launcher:\(record.app.id)", record.app.name, help: L10n.text("打开应用", "Open app"),
+                    rect: NSRect(x: p.x - 22, y: p.y - 22, width: 44, height: 44), enabled: record.available) { [weak self] in
                     guard let self, self.showsLauncher, record.available else { return }
                     self.onLaunchApp?(record.app)
                 }
-                items.last?.setAccessibilityEnabled(record.available)
             }
             if launcherPages > 1 {
                 for direction in [-1, 1] {
-                    add(direction < 0 ? L10n.text("上一页", "Previous page") : L10n.text("下一页", "Next page"), help: "",
+                    add("launcher-page:\(direction)", direction < 0 ? L10n.text("上一页", "Previous page") : L10n.text("下一页", "Next page"), help: "",
                         rect: NSRect(x: direction < 0 ? 218 : 240, y: 208, width: 22, height: 14)) { [weak self] in self?.changeLauncherPage(direction) }
                 }
             }
-            setAccessibilityElement(false); setAccessibilityChildren(items)
+            accessibleItems.update(items, in: self)
             return
         }
         for (i, app) in visibleApps.enumerated() {
             let p = RingGeometry.point(angle: RingGeometry.angle(index: i, count: visibleApps.count), radius: RingGeometry.appRadius)
             let mode = options.contentMode(for: app.bundleID).title
             let label = itemCounts[app.pid]?.badge.map { "\(app.name), \($0) \(mode)" } ?? app.name
-            add(label, help: L10n.text("有多个\(mode)时展开圆弧；点击切换，拖出轮盘退出应用。", "Show windows or tabs. Click to switch; drag the app outside the ring to quit."), rect: NSRect(x: p.x - 24, y: p.y - 24, width: 48, height: 48)) { [weak self] in self?.select(app) }
+            add("app:\(app.pid)", label, help: L10n.text("有多个\(mode)时展开圆弧；点击切换，拖出轮盘退出应用。", "Show windows or tabs. Click to switch; drag the app outside the ring to quit."), rect: NSRect(x: p.x - 24, y: p.y - 24, width: 48, height: 48)) { [weak self] in self?.select(app) }
         }
         for (i, win) in visibleWindows.enumerated() {
             let p = windowPoint(i)
-            add(win.displayTitle + (win.minimized ? L10n.text("，已最小化", ", minimized") : ""), help: L10n.text("切换到此\(secondaryName)", "Switch to this item"), rect: NSRect(x: p.x - 35, y: p.y - 29, width: 70, height: 58)) { [weak self] in self?.onActivateWindow?(win) }
-            add(L10n.text("关闭 \(win.displayTitle)", "Close \(win.displayTitle)"), help: L10n.text("关闭此窗口或标签页", "Close this window or tab"), rect: closeButtonRect(at: i)) { [weak self] in self?.onCloseWindow?(win) }
+            add("window:\(win.id)", win.displayTitle + (win.minimized ? L10n.text("，已最小化", ", minimized") : ""), help: L10n.text("切换到此\(secondaryName)", "Switch to this item"), rect: NSRect(x: p.x - 35, y: p.y - 29, width: 70, height: 58)) { [weak self] in self?.onActivateWindow?(win) }
+            add("close:\(win.id)", L10n.text("关闭 \(win.displayTitle)", "Close \(win.displayTitle)"), help: L10n.text("关闭此窗口或标签页", "Close this window or tab"), rect: closeButtonRect(at: i)) { [weak self] in self?.onCloseWindow?(win) }
         }
         let c = RingGeometry.center
         if showsWindowArc && windowPages > 1 {
-            add(L10n.text("上一页\(secondaryName)", "Previous \(secondaryName.lowercased())"), help: L10n.text("圆弧滚动翻页", "Scroll over the arc to change pages"), rect: NSRect(x: pageControlsRect.minX, y: pageControlsRect.minY, width: 22, height: 14)) { [weak self] in self?.changeWindowPage(-1) }
-            add(L10n.text("下一页\(secondaryName)", "Next \(secondaryName.lowercased())"), help: L10n.text("圆弧滚动翻页", "Scroll over the arc to change pages"), rect: NSRect(x: c.x, y: pageControlsRect.minY, width: 22, height: 14)) { [weak self] in self?.changeWindowPage(1) }
+            add("window-previous", L10n.text("上一页\(secondaryName)", "Previous \(secondaryName.lowercased())"), help: L10n.text("圆弧滚动翻页", "Scroll over the arc to change pages"), rect: NSRect(x: pageControlsRect.minX, y: pageControlsRect.minY, width: 22, height: 14)) { [weak self] in self?.changeWindowPage(-1) }
+            add("window-next", L10n.text("下一页\(secondaryName)", "Next \(secondaryName.lowercased())"), help: L10n.text("圆弧滚动翻页", "Scroll over the arc to change pages"), rect: NSRect(x: c.x, y: pageControlsRect.minY, width: 22, height: 14)) { [weak self] in self?.changeWindowPage(1) }
         } else if appPages > 1 {
-            add(L10n.text("上一页应用", "Previous apps"), help: L10n.text("滚动或点击翻页", "Scroll or click to change pages"), rect: NSRect(x: pageControlsRect.minX, y: pageControlsRect.minY, width: 22, height: 14)) { [weak self] in self?.changeAppPage(-1) }
-            add(L10n.text("下一页应用", "Next apps"), help: L10n.text("滚动或点击翻页", "Scroll or click to change pages"), rect: NSRect(x: c.x, y: pageControlsRect.minY, width: 22, height: 14)) { [weak self] in self?.changeAppPage(1) }
+            add("app-previous", L10n.text("上一页应用", "Previous apps"), help: L10n.text("滚动或点击翻页", "Scroll or click to change pages"), rect: NSRect(x: pageControlsRect.minX, y: pageControlsRect.minY, width: 22, height: 14)) { [weak self] in self?.changeAppPage(-1) }
+            add("app-next", L10n.text("下一页应用", "Next apps"), help: L10n.text("滚动或点击翻页", "Scroll or click to change pages"), rect: NSRect(x: c.x, y: pageControlsRect.minY, width: 22, height: 14)) { [weak self] in self?.changeAppPage(1) }
         }
-        add(L10n.text("设置", "Settings"), help: L10n.text("打开设置", "Open settings"), rect: NSRect(x: c.x - 30, y: c.y - 15, width: 60, height: 38)) { [weak self] in self?.onSettings?() }
-        setAccessibilityElement(false)
-        setAccessibilityChildren(items)
+        add("settings", L10n.text("设置", "Settings"), help: L10n.text("打开设置", "Open settings"), rect: NSRect(x: c.x - 30, y: c.y - 15, width: 60, height: 38)) { [weak self] in self?.onSettings?() }
+        accessibleItems.update(items, in: self)
     }
-}
-
-final class RingAccessibleItem: NSAccessibilityElement {
-    var action: (() -> Void)?
-    override func accessibilityPerformPress() -> Bool { action?(); return true }
 }

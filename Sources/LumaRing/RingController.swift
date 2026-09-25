@@ -178,6 +178,7 @@ final class RingPanel: NSPanel {
                 return
             }
             let named = self.names.apply(result, pid: app.pid)
+            if case .ready = result { self.counts.markResolved(app.pid) }
             if closedID != nil, case .unavailable(let message) = named {
                 self.view.message = message; self.view.refresh()
             } else { self.view.setWindows(named, for: app.pid) }
@@ -358,7 +359,9 @@ final class RingPanel: NSPanel {
             actionView.ready = false; actionView.message = actionMessage(available: false); actionView.refresh()
             if !actionMode { panel.makeKey(); panel.makeFirstResponder(view) }
         }
-        keyboardMonitor = RingKeyboardMonitor { [weak self] event in self?.handleKeyboard(event) ?? false }
+        keyboardMonitor = RingKeyboardMonitor { [weak self] event, canNavigate in
+            self?.handleKeyboard(event, canNavigate: canNavigate) ?? false
+        }
         // Mouse monitors exist only while visible; the trackpad listener is separately opt-in.
         clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
             DispatchQueue.main.async {
@@ -399,6 +402,7 @@ final class RingPanel: NSPanel {
         panel?.orderOut(nil); actionPanel?.orderOut(nil)
         setActionLauncherSurface(false)
         actionView.actions = []; actionView.ready = false; actionView.reset()
+        actionView.icon = nil; actionView.appName = ""; actionView.message = ""
         originApp = nil
         gate.invalidate()
         openedByShortcut = false
@@ -495,7 +499,7 @@ final class RingPanel: NSPanel {
         actionPanel?.setLauncherVisible(show, launcher: view, actions: actionView, restoreTo: panel)
     }
 
-    private func handleKeyboard(_ event: NSEvent) -> Bool {
+    private func handleKeyboard(_ event: NSEvent, canNavigate: Bool = true) -> Bool {
         guard isVisible else { return false }
         // Releases must retract the hold overlay even during a mouse press.
         // Clearing that press prevents mouse-up from selecting the underlying ring.
@@ -509,13 +513,16 @@ final class RingPanel: NSPanel {
         if event.type == .keyDown {
             optionTap.reset(); optionHold?.cancel(); optionHold = nil
             let shortcuts = Preferences.shared.options.invocationShortcuts
-            var modifiers: UInt32 = 0
-            if event.modifierFlags.contains(.command) { modifiers |= UInt32(cmdKey) }
-            if event.modifierFlags.contains(.option) { modifiers |= UInt32(optionKey) }
-            if event.modifierFlags.contains(.control) { modifiers |= UInt32(controlKey) }
-            if event.modifierFlags.contains(.shift) { modifiers |= UInt32(shiftKey) }
-            // Carbon owns invocation; do not race its toggle callback.
-            if actionMode, !shortcuts.contains(where: { $0.matches(keyCode: UInt32(event.keyCode), modifiers: modifiers) }) { dismiss() }
+            if canNavigate, let command = RingNavigation.command(for: event, reserving: shortcuts) {
+                openedByShortcut = false
+                if !event.isARepeat || command.repeats {
+                    if actionMode, !view.showsLauncher { actionView.navigate(command) }
+                    else { view.navigate(command) }
+                }
+                return true
+            }
+            // Carbon owns invocation, including Option-Tab while the ring is open.
+            if actionMode, !shortcuts.contains(where: { $0.matches(event) }) { dismiss() }
             return false
         }
         // Device-dependent left/right bits from IOLLEvent.h. Aggregate .option

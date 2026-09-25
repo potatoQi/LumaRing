@@ -235,8 +235,8 @@ final class BrowserEvents {
     @Published private(set) var messages: [String: String] = [:]
     @Published private(set) var connected: Set<String> = []
     @Published private(set) var connecting: Set<String> = []
-    private let queue = DispatchQueue(label: "local.lumaring.browser-tabs", qos: .userInitiated)
-    private let authorizationQueue = DispatchQueue(label: "local.lumaring.browser-authorization", qos: .userInitiated)
+    private let queue = DispatchQueue(label: "local.lumaring.browser-tabs", qos: .userInitiated, autoreleaseFrequency: .workItem)
+    private let authorizationQueue = DispatchQueue(label: "local.lumaring.browser-authorization", qos: .userInitiated, autoreleaseFrequency: .workItem)
     private var work: CancellationFlag?
 
     func refreshLanguage() {

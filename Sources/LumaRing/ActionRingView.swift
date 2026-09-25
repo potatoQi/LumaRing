@@ -42,13 +42,15 @@ import LumaRingCore
     var onClose: (() -> Void)?
     var onSettings: (() -> Void)?
     private(set) var page = 0
-    private var hover: String?
+    private(set) var hover: String?
+    private var keyboardPointer: CGPoint?
     private var pressed: String?
     private var pressPoint: CGPoint?
     private var tracking: NSTrackingArea?
     private var scrollTime = 0.0
     private let material = RingMaterial()
     private let artwork = RingArtwork()
+    private let accessibleItems = RingAccessibility()
     var isPointerDown: Bool { pressPoint != nil }
     var visible: [AppAction] { Array(actions[RingGeometry.pageRange(page: page, total: actions.count, size: 6)]) }
     private var pages: Int { RingGeometry.pageCount(total: actions.count, size: 6) }
@@ -76,41 +78,32 @@ import LumaRingCore
         super.updateTrackingAreas()
     }
     override func viewDidChangeEffectiveAppearance() { super.viewDidChangeEffectiveAppearance(); refresh() }
-    func reset() { page = 0; hover = nil; pressed = nil; pressPoint = nil; refresh() }
+    func reset() { keyboardPointer = nil; page = 0; hover = nil; pressed = nil; pressPoint = nil; refresh() }
     func refresh() {
         artwork.needsDisplay = true
-        guard let window else { return }
-        var items = visible.enumerated().map { index, action -> RingAccessibleItem in
-            let item = RingAccessibleItem()
+        guard window != nil else { accessibleItems.clear(in: self); return }
+        let visible = visible
+        var items = visible.enumerated().map { index, action -> RingAccessibility.Entry in
             let point = RingGeometry.point(angle: RingGeometry.angle(index: index, count: visible.count), radius: 82)
-            item.setAccessibilityRole(.button); item.setAccessibilityLabel(action.displayName)
-            item.setAccessibilityHelp(action.shortcut?.display ?? ""); item.setAccessibilityParent(self)
-            item.setAccessibilityEnabled(ready)
-            item.setAccessibilityFrame(window.convertToScreen(convert(CGRect(x: point.x - 32, y: point.y - 20, width: 64, height: 48), to: nil)))
-            item.action = { [weak self] in if self?.ready == true { self?.onAction?(action) } }
-            return item
-        }
-        func control(_ label: String, rect: CGRect, action: @escaping () -> Void) -> RingAccessibleItem {
-            let item = RingAccessibleItem()
-            item.setAccessibilityRole(.button); item.setAccessibilityLabel(label); item.setAccessibilityParent(self)
-            item.setAccessibilityFrame(window.convertToScreen(convert(rect, to: nil)))
-            item.action = action
-            return item
+            return .init(id: "action:\(action.id)", label: action.displayName, help: action.shortcut?.display ?? "",
+                         rect: CGRect(x: point.x - 32, y: point.y - 20, width: 64, height: 48), enabled: ready) { [weak self] in
+                if self?.ready == true { self?.onAction?(action) }
+            }
         }
         if pages > 1 {
-            items.append(control(L10n.text("上一页操作", "Previous actions"), rect: CGRect(x: 214, y: 207, width: 26, height: 15)) { [weak self] in self?.turnPage(-1) })
-            items.append(control(L10n.text("下一页操作", "Next actions"), rect: CGRect(x: 240, y: 207, width: 26, height: 15)) { [weak self] in self?.turnPage(1) })
+            items.append(.init(id: "previous", label: L10n.text("上一页操作", "Previous actions"), rect: CGRect(x: 214, y: 207, width: 26, height: 15)) { [weak self] in self?.turnPage(-1) })
+            items.append(.init(id: "next", label: L10n.text("下一页操作", "Next actions"), rect: CGRect(x: 240, y: 207, width: 26, height: 15)) { [weak self] in self?.turnPage(1) })
         }
         if actions.isEmpty {
-            items.append(control(L10n.text("在设置的快捷操作中配置", "Configure in Settings → Actions"), rect: CGRect(x: 204, y: 220, width: 72, height: 35)) { [weak self] in self?.onSettings?() })
+            items.append(.init(id: "settings", label: L10n.text("在设置的快捷操作中配置", "Configure in Settings → Actions"), rect: CGRect(x: 204, y: 220, width: 72, height: 35)) { [weak self] in self?.onSettings?() })
         }
-        setAccessibilityChildren(items)
+        accessibleItems.update(items, in: self)
     }
     func target(at point: CGPoint) -> AppAction? {
         guard let index = RingGeometry.appIndex(at: point, count: visible.count) else { return nil }
         return visible[index]
     }
-    func begin(at point: CGPoint) { onPointerInteraction?(); pressPoint = point; pressed = target(at: point)?.id }
+    func begin(at point: CGPoint) { keyboardPointer = nil; onPointerInteraction?(); pressPoint = point; pressed = target(at: point)?.id }
     func end(at point: CGPoint) {
         let original = pressPoint, id = pressed
         pressPoint = nil; pressed = nil
@@ -124,16 +117,38 @@ import LumaRingCore
         }
     }
     func turnPage(_ direction: Int) {
+        keyboardPointer = nil
         guard !isPointerDown else { return }
         page = RingGeometry.wrapped(page + direction, count: pages); hover = nil; refresh()
     }
     override func mouseDown(with event: NSEvent) { guard acceptsPointerEvent?(event) != false else { return }; begin(at: convert(event.locationInWindow, from: nil)) }
     override func mouseUp(with event: NSEvent) { guard acceptsPointerEvent?(event) != false else { return }; end(at: convert(event.locationInWindow, from: nil)) }
     override func mouseMoved(with event: NSEvent) {
+        guard keyboardPointer != NSEvent.mouseLocation else { return }
+        keyboardPointer = nil
         let value = target(at: convert(event.locationInWindow, from: nil))?.id
-        if hover != value { hover = value; refresh() }
+        if hover != value { hover = value; artwork.needsDisplay = true }
     }
-    override func mouseExited(with event: NSEvent) { hover = nil; refresh() }
+    override func mouseExited(with event: NSEvent) {
+        guard keyboardPointer != NSEvent.mouseLocation else { return }
+        keyboardPointer = nil; hover = nil; artwork.needsDisplay = true
+    }
+    func navigate(_ command: RingNavigation) {
+        guard !isPointerDown else { return }
+        keyboardPointer = NSEvent.mouseLocation
+        switch command {
+        case .step(let direction):
+            let current = actions.firstIndex { $0.id == hover }
+            guard let next = RingNavigation.next(current: current, pageStart: page * 6,
+                total: actions.count, direction: direction) else { return }
+            let changedPage = page != next / 6
+            page = next / 6; hover = actions[next].id
+            if changedPage { refresh() } else { artwork.needsDisplay = true }
+        case .activate:
+            if ready, let action = actions.first(where: { $0.id == hover }) { onAction?(action) }
+        case .toggleSecondary: break
+        }
+    }
     override func scrollWheel(with event: NSEvent) {
         guard event.momentumPhase == [], abs(event.scrollingDeltaY) > 0.1,
               event.timestamp - scrollTime > 0.22 else { return }
