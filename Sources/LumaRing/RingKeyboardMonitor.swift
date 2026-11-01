@@ -16,7 +16,7 @@ import AppKit
     init(install: Bool = true, handler: @escaping @MainActor (NSEvent, Bool) -> Bool) {
         self.handler = handler
         guard install else { return }
-        initiallyHeld = Set(RingNavigation.keyCodes.filter { CGEventSource.keyState(.combinedSessionState, key: $0) })
+        initiallyHeld = Set((RingNavigation.keyCodes + [53]).filter { CGEventSource.keyState(.combinedSessionState, key: $0) })
         let mask = (CGEventMask(1) << CGEventType.keyDown.rawValue) | (CGEventMask(1) << CGEventType.keyUp.rawValue)
         tap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap, options: .defaultTap,
             eventsOfInterest: mask, callback: { _, type, event, context in
@@ -42,9 +42,9 @@ import AppKit
         local = NSEvent.addLocalMonitorForEvents(matching: events) { [weak self] event in
             let consumed = MainActor.assumeIsolated {
                 guard let self else { return false }
-                // Navigation is already handled by the tap. Other events (notably
+                // Navigation and Escape are handled by the tap. Other events (notably
                 // modifier changes and typing to dismiss actions) retain their path.
-                if self.tap != nil, RingNavigation.command(for: event) != nil { return false }
+                if self.tap != nil, Self.handles(event) { return false }
                 return self.handler?(event, true) == true
             }
             return consumed ? nil : event
@@ -52,11 +52,15 @@ import AppKit
         global = NSEvent.addGlobalMonitorForEvents(matching: events) { [weak self] event in
             MainActor.assumeIsolated {
                 guard let self else { return }
-                if self.tap != nil, RingNavigation.command(for: event) != nil { return }
+                if self.tap != nil, Self.handles(event) { return }
                 // An observational monitor must never navigate AND forward Tab.
                 _ = self.handler?(event, false)
             }
         }
+    }
+
+    private static func handles(_ event: NSEvent) -> Bool {
+        event.type == .keyDown && (event.keyCode == 53 || RingNavigation.command(for: event) != nil)
     }
 
     func consume(_ event: NSEvent) -> Bool {
@@ -73,8 +77,8 @@ import AppKit
             }
             return true
         }
-        guard RingNavigation.command(for: event) != nil, let handler else { return false }
-        // Mark before dispatch: Return may dismiss and stop this monitor inside
+        guard Self.handles(event), let handler else { return false }
+        // Mark before dispatch: Return or Escape may dismiss and stop this monitor inside
         // the callback. Its repeat/key-up must still not leak into the target app.
         held.insert(code)
         if handler(event, true) { return true }

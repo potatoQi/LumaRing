@@ -3,6 +3,36 @@ import CoreGraphics
 @testable import LumaRingCore
 
 final class RingGeometryTests: XCTestCase {
+    func testExtendedArcUsesVisibleSideEdgesAtEveryRadiusAndOrientation() {
+        for app in 0..<8 {
+            let anchor = RingGeometry.angle(index: app, count: 8)
+            for count in RingGeometry.windowPageSizeRange {
+                for index in 0..<count {
+                    let angle = RingGeometry.arcAngle(index: index, count: count, anchor: anchor)
+                    for radius in [41.0, 88, 158, 200, 2000] {
+                        XCTAssertEqual(RingGeometry.arcIndex(at: RingGeometry.point(angle: angle, radius: radius),
+                            count: count, anchor: anchor, inner: RingGeometry.appInner, outer: .infinity), index)
+                    }
+                }
+                let half = RingGeometry.arcHalfAngle(count: count)
+                let highlight = RingGeometry.arcPath(count: count, anchor: anchor, inner: 40, outer: 118)
+                for side in [-1.0, 1.0] {
+                    let inside = RingGeometry.point(angle: anchor + side * (half - 0.001), radius: 88)
+                    XCTAssertTrue(highlight.contains(inside))
+                    XCTAssertEqual(RingGeometry.arcIndex(at: inside, count: count, anchor: anchor,
+                        inner: 40, outer: .infinity), side > 0 ? 0 : count - 1)
+                    for radius in [88.0, 158, 2000] {
+                        let outside = RingGeometry.point(angle: anchor + side * (half + 0.001), radius: radius)
+                        XCTAssertNil(RingGeometry.arcIndex(at: outside, count: count, anchor: anchor, inner: 40, outer: .infinity))
+                    }
+                }
+                XCTAssertNil(RingGeometry.arcIndex(at: RingGeometry.center, count: count, anchor: anchor,
+                    inner: 40, outer: .infinity))
+                XCTAssertNil(RingGeometry.arcIndex(at: RingGeometry.point(angle: anchor, radius: 2000), count: count, anchor: anchor))
+            }
+        }
+    }
+
     func testWindowArcFollowsEveryAppAndNeverWrapsIntoFullRing() {
         for app in 0..<8 {
             let anchor = RingGeometry.angle(index: app, count: 8)

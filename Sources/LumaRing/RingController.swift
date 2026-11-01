@@ -21,7 +21,9 @@ final class RingPanel: NSPanel {
     private let names = WindowNames()
     private let previews = PreviewService()
     private let previewCard = WindowPreview()
-    private var openedByShortcut = false
+    private var openedByShortcut = false {
+        didSet { view.selectingWithShortcut = openedByShortcut }
+    }
     private var presentationID = UUID()
     private var closeRequests: Set<String> = []
     private var panel: RingPanel?
@@ -34,8 +36,8 @@ final class RingPanel: NSPanel {
     private var optionTap = LeftOptionDoubleTap()
     private var optionHold: DispatchWorkItem?
     private var switchingMode = false
-    private var clickMonitor: Any?
-    private var localClickMonitor: Any?
+    private var mouseMonitor: Any?
+    private var localMouseMonitor: Any?
     private var gate = RequestGate()
     var onSettings: (() -> Void)?
     var onError: ((String) -> Void)?
@@ -363,15 +365,17 @@ final class RingPanel: NSPanel {
             self?.handleKeyboard(event, canNavigate: canNavigate) ?? false
         }
         // Mouse monitors exist only while visible; the trackpad listener is separately opt-in.
-        clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
+        mouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved, .leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
             DispatchQueue.main.async {
                 guard let self, self.view.acceptsPointerEvent(event) else { return }
+                if event.type == .mouseMoved { self.updateHeldSelection(at: NSEvent.mouseLocation); return }
                 if !self.view.isContextMenuOpen { self.dismiss() }
             }
         }
-        localClickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+        localMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .leftMouseDown, .rightMouseDown]) { [weak self] event in
             if let self {
                 guard self.view.acceptsPointerEvent(event) else { return nil }
+                if event.type == .mouseMoved { self.updateHeldSelection(at: NSEvent.mouseLocation); return event }
                 if !self.view.isContextMenuOpen, !self.ownsInteractionWindow(event.window) { self.dismiss() }
             }
             return event
@@ -412,15 +416,24 @@ final class RingPanel: NSPanel {
         tabs.cancelAndClear()
         counts.cancelAndClear()
         previews.cancelAndClear()
-        if let clickMonitor { NSEvent.removeMonitor(clickMonitor) }; clickMonitor = nil
-        if let localClickMonitor { NSEvent.removeMonitor(localClickMonitor) }; localClickMonitor = nil
+        if let mouseMonitor { NSEvent.removeMonitor(mouseMonitor) }; mouseMonitor = nil
+        if let localMouseMonitor { NSEvent.removeMonitor(localMouseMonitor) }; localMouseMonitor = nil
         // Release AX elements, image buffers and application snapshots when hidden.
         view.reset(apps: [], options: Preferences.shared.options)
         closing = false
     }
 
+    func updateHeldSelection(at screenPoint: CGPoint) {
+        guard openedByShortcut, isVisible, let window = view.window else { return }
+        let point = view.convert(window.convertPoint(fromScreen: screenPoint), from: nil)
+        // Inside the panel, RingView already receives mouse movement directly.
+        if !view.bounds.contains(point) { view.updateHover(at: point) }
+    }
+
     func releaseShortcut() {
         if !actionMode && isVisible && openedByShortcut && Preferences.shared.options.holdToSelect {
+            // Use the final outside position even if a mouse monitor callback is queued.
+            updateHeldSelection(at: NSEvent.mouseLocation)
             openedByShortcut = false
             view.activateHovered()
         }
@@ -499,7 +512,7 @@ final class RingPanel: NSPanel {
         actionPanel?.setLauncherVisible(show, launcher: view, actions: actionView, restoreTo: panel)
     }
 
-    private func handleKeyboard(_ event: NSEvent, canNavigate: Bool = true) -> Bool {
+    func handleKeyboard(_ event: NSEvent, canNavigate: Bool = true) -> Bool {
         guard isVisible else { return false }
         // Releases must retract the hold overlay even during a mouse press.
         // Clearing that press prevents mouse-up from selecting the underlying ring.
@@ -512,6 +525,10 @@ final class RingPanel: NSPanel {
         }
         if event.type == .keyDown {
             optionTap.reset(); optionHold?.cancel(); optionHold = nil
+            if event.keyCode == 53 {
+                dismiss()
+                return true
+            }
             let shortcuts = Preferences.shared.options.invocationShortcuts
             if canNavigate, let command = RingNavigation.command(for: event, reserving: shortcuts) {
                 openedByShortcut = false

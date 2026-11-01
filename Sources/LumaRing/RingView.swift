@@ -13,6 +13,9 @@ import LumaRingCore
     var message = L10n.text("悬停应用", "Point at an app")
     var loading = false
     var options = Options()
+    var selectingWithShortcut = false {
+        didSet { if selectingWithShortcut != oldValue { refreshArtwork() } }
+    }
     var onSelectApp: ((AppRecord) -> Void)?
     var onActivateApp: ((AppRecord) -> Void)?
     var onActivateWindow: ((WindowRecord) -> Void)?
@@ -185,6 +188,7 @@ import LumaRingCore
     var currentWindow: WindowRecord? { windows.first { $0.id == hoveredWindow } }
 
     func reset(apps: [AppRecord], options: Options) {
+        selectingWithShortcut = false
         invocationClickDeadline = 0
         endKeyboardNavigation()
         keepsSingleWindowArc = false; closingWindowIDs.removeAll()
@@ -308,7 +312,8 @@ import LumaRingCore
 
     func updateHover(at p: CGPoint) {
         endKeyboardNavigation()
-        if hypot(p.x - RingGeometry.center.x, p.y - RingGeometry.center.y) >= RingGeometry.appInner {
+        let radius = hypot(p.x - RingGeometry.center.x, p.y - RingGeometry.center.y)
+        if radius >= RingGeometry.appInner {
             centerClickWork?.cancel(); centerClickWork = nil
         }
         guard !isPointerDown, !isContextMenuOpen, !isEditingName else { return }
@@ -317,12 +322,30 @@ import LumaRingCore
             if id != hoveredLauncher { hoveredLauncher = id; refreshArtwork() }
             return
         }
-        let close = closeTarget(at: p)
+        let close = selectingWithShortcut ? nil : closeTarget(at: p)
         if hoveredClose != close?.id { hoveredClose = close?.id; refreshArtwork() }
         if close != nil {
             cancelHover()
             setHoveredWindow(nil)
             return
+        }
+        if selectingWithShortcut {
+            if radius < RingGeometry.appInner {
+                if selectedApp != nil { clearSelection() }
+                return
+            }
+            if showsWindowArc, let index = RingGeometry.arcIndex(at: p, count: visibleWindows.count, anchor: arcAnchor,
+                inner: RingGeometry.appInner, outer: .infinity) {
+                // The expanded arc owns this direction from the inner ring outward.
+                // Crossing its side edges hands selection back to the app sectors.
+                cancelHover()
+                if radius > RingGeometry.appOuter { setHoveredWindow(visibleWindows[index]) }
+                else {
+                    setHoveredWindow(nil)
+                    if let app = currentApp { select(app) }
+                }
+                return
+            }
         }
         if let index = RingGeometry.appIndex(at: p, count: visibleApps.count) {
             collapseWork?.cancel(); collapseWork = nil
@@ -334,8 +357,13 @@ import LumaRingCore
             if let index = windowIndex(at: p) {
                 collapseWork?.cancel(); collapseWork = nil
                 setHoveredWindow(visibleWindows[index])
+            } else if selectingWithShortcut, let index = RingGeometry.index(at: p, count: visibleApps.count,
+                inner: RingGeometry.appOuter, outer: .infinity) {
+                // Hold-to-select extends each app's sector beyond the visible ring.
+                // The expanded secondary arc above retains priority over this extension.
+                setHoveredWindow(nil)
+                select(visibleApps[index])
             } else {
-                let radius = hypot(p.x - RingGeometry.center.x, p.y - RingGeometry.center.y)
                 let angle = atan2(p.y - RingGeometry.center.y, p.x - RingGeometry.center.x)
                 let distance = abs(atan2(sin(angle - arcAnchor), cos(angle - arcAnchor)))
                 if radius < RingGeometry.appInner {
@@ -372,6 +400,7 @@ import LumaRingCore
 
     override func mouseExited(with event: NSEvent) {
         guard keyboardPointer != NSEvent.mouseLocation else { return }
+        if selectingWithShortcut { updateHover(at: point(event)); return }
         endKeyboardNavigation()
         if showsLauncher { hoveredLauncher = nil; refreshArtwork() }
         else if !isPointerDown && !isContextMenuOpen && !isEditingName { clearSelection() }
@@ -601,7 +630,7 @@ import LumaRingCore
         setHoveredWindow(nil); refresh()
     }
 
-    // Escape retains only its existing pointer/favorites cancellation behavior.
+    // Normal Escape dismissal is handled by RingController; pointer cancellation stays local.
     override func keyDown(with event: NSEvent) {
         if event.keyCode == 53, showsLauncher {
             endLauncherMode(); return
@@ -704,12 +733,21 @@ import LumaRingCore
     private var accent: NSColor { .controlAccentColor }
     private var dark: Bool { diskArtwork.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua }
 
+    var appHighlightPath: CGPath? {
+        guard !isDraggingApp, let pid = highlightedApp, let index = visibleApps.firstIndex(where: { $0.pid == pid }) else { return nil }
+        if selectingWithShortcut, showsWindowArc, pid == selectedApp,
+           RingGeometry.arcHalfAngle(count: visibleWindows.count) > .pi / Double(visibleApps.count) {
+            return RingGeometry.arcPath(count: visibleWindows.count, anchor: arcAnchor,
+                inner: RingGeometry.appInner, outer: RingGeometry.appOuter)
+        }
+        return RingGeometry.appSectorPath(index: index, count: visibleApps.count)
+    }
+
     private func drawDisk() {
         if showsLauncher, launcherInnerArtwork != nil { drawLauncher(); return }
-        if !isDraggingApp, let pid = highlightedApp, let index = visibleApps.firstIndex(where: { $0.pid == pid }),
-           let context = NSGraphicsContext.current?.cgContext {
+        if let path = appHighlightPath, let context = NSGraphicsContext.current?.cgContext {
             NSGraphicsContext.saveGraphicsState()
-            context.addPath(RingGeometry.appSectorPath(index: index, count: visibleApps.count))
+            context.addPath(path)
             NSColor.labelColor.withAlphaComponent(dark ? 0.16 : 0.07).setFill()
             context.fillPath()
             NSGraphicsContext.restoreGraphicsState()
@@ -807,7 +845,9 @@ import LumaRingCore
         let app = apps.first { $0.pid == hoveredApp } ?? currentApp
         let name = app?.name ?? (apps.isEmpty ? L10n.text("暂无应用", "No apps") : L10n.text("应用", "Apps"))
         let paging = (showsWindowArc && windowPages > 1) || appPages > 1
-        RingCenterLabel.draw(title: name, detail: app == nil || loading ? "" : message,
+        let detail = selectingWithShortcut && highlightedApp != nil
+            ? L10n.text("松开快捷键切换", "Release to switch") : (app == nil || loading ? "" : message)
+        RingCenterLabel.draw(title: name, detail: detail,
                              paging: paging, titleColor: ink, detailColor: muted)
         if paging {
             drawSymbol("chevron.left", rect: NSRect(x: c.x - 20, y: c.y - 29, width: 5, height: 8), color: muted)

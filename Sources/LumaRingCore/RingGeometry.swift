@@ -44,15 +44,15 @@ public struct RingGeometry {
         anchor + (Double(count - 1) / 2 - Double(index)) * arcStep
     }
 
-    public static func arcPath(count: Int, anchor: Double) -> CGPath {
+    public static func arcPath(count: Int, anchor: Double, inner: Double = windowInner, outer: Double = windowOuter) -> CGPath {
         let path = CGMutablePath()
-        guard count > 0 else { return path }
+        guard count > 0, inner >= 0, outer > inner else { return path }
         let half = arcHalfAngle(count: count)
         let start = anchor - half, end = anchor + half
-        path.move(to: point(angle: start, radius: windowOuter))
-        path.addArc(center: center, radius: windowOuter, startAngle: start, endAngle: end, clockwise: false)
-        path.addLine(to: point(angle: end, radius: windowInner))
-        path.addArc(center: center, radius: windowInner, startAngle: end, endAngle: start, clockwise: true)
+        path.move(to: point(angle: start, radius: outer))
+        path.addArc(center: center, radius: outer, startAngle: start, endAngle: end, clockwise: false)
+        path.addLine(to: point(angle: end, radius: inner))
+        path.addArc(center: center, radius: inner, startAngle: end, endAngle: start, clockwise: true)
         path.closeSubpath()
         return path
     }
@@ -95,10 +95,13 @@ public struct RingGeometry {
         return path
     }
 
-    public static func arcIndex(at point: CGPoint, count: Int, anchor: Double) -> Int? {
-        guard count > 0, arcPath(count: count, anchor: anchor).contains(point) else { return nil }
+    public static func arcIndex(at point: CGPoint, count: Int, anchor: Double,
+                                inner: Double = windowInner, outer: Double = windowOuter) -> Int? {
+        let radius = hypot(point.x - center.x, point.y - center.y)
+        guard count > 0, inner >= 0, outer >= inner, radius >= inner, radius <= outer else { return nil }
         let angle = atan2(point.y - center.y, point.x - center.x)
         let relative = atan2(sin(anchor - angle), cos(anchor - angle))
+        guard abs(relative) <= arcHalfAngle(count: count) else { return nil }
         let index = Int((relative / arcStep + Double(count - 1) / 2).rounded())
         return min(count - 1, max(0, index))
     }

@@ -5,55 +5,88 @@ import ServiceManagement
 import SwiftUI
 import UniformTypeIdentifiers
 
+enum SettingsSection: CaseIterable, Identifiable {
+    case general, appearance, apps, actions, permissions, about, guide
+    var id: Self { self }
+    var title: String {
+        switch self {
+        case .general: return L10n.text("通用", "General")
+        case .appearance: return L10n.text("外观", "Appearance")
+        case .apps: return L10n.text("应用", "Apps")
+        case .actions: return L10n.text("快捷操作", "Actions")
+        case .permissions: return L10n.text("权限", "Permissions")
+        case .about: return L10n.text("关于", "About")
+        case .guide: return L10n.text("使用指南", "Quick Guide")
+        }
+    }
+    var symbol: String {
+        switch self {
+        case .general: return "keyboard"
+        case .appearance: return "circle.lefthalf.filled"
+        case .apps: return "square.grid.2x2"
+        case .actions: return "bolt"
+        case .permissions: return "lock.shield"
+        case .about: return "info.circle"
+        case .guide: return "questionmark.circle"
+        }
+    }
+}
+
 struct SettingsView: View {
     @ObservedObject var preferences = Preferences.shared
     @ObservedObject var updates = UpdateService.shared
     @ObservedObject var browserTabs = BrowserTabService.shared
     @ObservedObject var trackpad = TrackpadGesture.shared
-    @State private var selectedTab = 0
+    @State private var selectedSection: SettingsSection
     @State private var loginEnabled = SMAppService.mainApp.status == .enabled
     @State private var loginError: String?
     @State private var apps: [NSRunningApplication] = []
     @State private var logStatus = AppLog.Status(bytes: 0, writeFailed: false, dropped: 0)
     @State private var logBusy = false
 
+    init(section: SettingsSection = .general) {
+        _selectedSection = State(initialValue: section)
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 16) {
-                Image(nsImage: NSApp.applicationIconImage).resizable().scaledToFit()
-                    .frame(width: 44, height: 44)
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("LumaRing").font(.system(size: 22, weight: .semibold, design: .rounded))
-                    Text(L10n.text("一个小圆盘，轻松切换。", "A small ring. An easy switch.")).font(.system(size: 13)).foregroundStyle(.secondary)
+        HStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 9) {
+                    Image(nsImage: NSApp.applicationIconImage).resizable().scaledToFit().frame(width: 28, height: 28)
+                    Text("LumaRing").font(.system(size: 15, weight: .semibold, design: .rounded))
+                }.padding(.horizontal, 8).padding(.top, 12).padding(.bottom, 22)
+                ForEach(SettingsSection.allCases.filter { $0 != .guide }) { section in
+                    navigationButton(section)
                 }
                 Spacer()
-            }.padding(26)
-            Picker(L10n.text("设置分类", "Settings category"), selection: $selectedTab) {
-                Text(L10n.text("通用", "General")).tag(0)
-                Text(L10n.text("权限与性能", "Permissions")).tag(1)
-                Text(L10n.text("应用管理", "App Management")).tag(2)
-                Text(L10n.text("快捷操作", "Actions")).tag(4)
-                Text(L10n.text("使用指南", "Guide")).tag(3)
-            }.pickerStyle(.segmented).padding(.horizontal, 26).padding(.bottom, 18)
+                navigationButton(.guide)
+            }.padding(12).frame(width: 170)
+                .background(Color.primary.opacity(0.035))
             Divider()
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    switch selectedTab {
-                    case 0: general
-                    case 1: permissions
-                    case 2: launcherSettings; appFilter
-                    case 4: ActionSettingsView(profiles: $preferences.options.actionProfiles, invocations: preferences.options.invocationShortcuts)
-                    default: guide
-                    }
-                }.padding(26).frame(maxWidth: .infinity, alignment: .leading)
-            }
-            Divider()
-            HStack {
-                Spacer()
-                Text("v\(UpdateService.version)")
-            }.font(.system(size: 11)).foregroundStyle(.secondary).padding(.horizontal, 26).padding(.vertical, 14)
+            VStack(alignment: .leading, spacing: 0) {
+                Text(selectedSection.title).font(.system(size: 22, weight: .semibold))
+                    .padding(.horizontal, 24).padding(.top, 26).padding(.bottom, 20)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 22) {
+                        switch selectedSection {
+                        case .general: general
+                        case .appearance: appearance
+                        case .apps: appFilter; launcherSettings
+                        case .actions:
+                            card(L10n.text("应用内的常用操作", "Shortcuts for each app")) {
+                                ActionSettingsView(profiles: $preferences.options.actionProfiles,
+                                    invocations: preferences.options.invocationShortcuts)
+                            }
+                        case .permissions: permissions
+                        case .about: about
+                        case .guide: guide
+                        }
+                    }.padding(.horizontal, 24).padding(.bottom, 24).frame(maxWidth: .infinity, alignment: .leading)
+                }.id(selectedSection)
+            }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        .frame(minWidth: 650, idealWidth: 680, minHeight: 620, idealHeight: 690)
+        .background(Color(nsColor: .windowBackgroundColor))
+        .frame(minWidth: 680, idealWidth: 680, minHeight: 620, idealHeight: 690)
         .environment(\.locale, preferences.language.locale)
         .onAppear { refresh() }
         .onChange(of: preferences.language) { _, _ in
@@ -64,92 +97,46 @@ struct SettingsView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in refresh() }
     }
 
+    private func navigationButton(_ section: SettingsSection) -> some View {
+        Button { selectedSection = section } label: {
+            HStack(spacing: 9) {
+                Image(systemName: section.symbol).frame(width: 18)
+                Text(section.title).lineLimit(1)
+                Spacer(minLength: 0)
+            }.font(.system(size: 13, weight: selectedSection == section ? .medium : .regular))
+                .padding(.horizontal, 10).padding(.vertical, 9)
+                .contentShape(Rectangle())
+                .foregroundStyle(selectedSection == section ? Color.accentColor : Color.primary)
+                .background(selectedSection == section ? Color.accentColor.opacity(0.12) : .clear,
+                            in: RoundedRectangle(cornerRadius: 7))
+        }.buttonStyle(.plain)
+            .accessibilityAddTraits(selectedSection == section ? .isSelected : [])
+    }
+
     private var general: some View {
         Group {
-            card(L10n.text("语言", "Language"), symbol: "globe") {
-                Picker(L10n.text("界面语言", "Interface language"), selection: $preferences.language) {
-                    ForEach(AppLanguage.allCases, id: \.self) { language in
-                        Text(language.title).tag(language)
-                    }
-                }.pickerStyle(.segmented)
-                Text(L10n.text("更改立即生效。", "Changes apply immediately."))
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            card(L10n.text("外观", "Appearance"), symbol: "circle.lefthalf.filled") {
-                Picker(L10n.text("主题", "Theme"), selection: $preferences.options.theme) {
-                    ForEach(AppTheme.allCases, id: \.self) { theme in
-                        Text(theme.title).tag(theme)
-                    }
-                }.pickerStyle(.segmented)
-                Picker(L10n.text("轮盘材质", "Ring material"), selection: $preferences.options.ringMaterial) {
-                    ForEach(RingMaterialStyle.allCases, id: \.self) { style in
-                        Text(style.title).tag(style).disabled(!style.isAvailable)
-                    }
-                }.pickerStyle(.menu)
-                Stepper(value: $preferences.options.centerTitleSize, in: Options.centerTitleSizeRange) {
-                    HStack {
-                        Text(L10n.text("轮盘中央标题字号", "Ring center title size"))
-                        Spacer()
-                        Text("\(preferences.options.centerTitleSize) pt").monospacedDigit().foregroundStyle(.secondary)
-                    }
-                }
-            }
-            card(L10n.text("软件更新", "Software Updates"), symbol: "arrow.triangle.2.circlepath") {
+            card(L10n.text("打开轮盘", "Open the ring")) {
                 HStack {
-                    Text(L10n.text("当前版本 v\(UpdateService.version)", "Current version v\(UpdateService.version)"))
+                    Text(L10n.text("切换应用", "App switcher"))
                     Spacer()
-                    Button(L10n.text("检查更新…", "Check for Updates…")) { updates.checkForUpdates() }.disabled(!updates.canCheck)
+                    ShortcutRecorder(shortcut: $preferences.options.shortcut).frame(width: 145, height: 30)
+                        .help(L10n.text("点击录入快捷键。单键会占用该键的全局输入。", "Click to record a shortcut. A single key is reserved system-wide."))
                 }
-                Toggle(L10n.text("自动检查更新", "Automatically check for updates"), isOn: Binding(get: { updates.automaticChecks }, set: { updates.setAutomaticChecks($0) }))
-                    .disabled(updates.configurationMessage != nil)
-                Text(L10n.text("每天检查一次。有新版本时，你可以选择更新、忽略此版本或稍后提醒；不会自动安装。", "Checks daily. Choose to install an update, skip it, or be reminded later. Updates are never installed automatically.")).font(.caption).foregroundStyle(.secondary)
-                if let date = updates.lastChecked {
-                    Text(L10n.text("上次检查：\(date.formatted(.dateTime.year().month().day().hour().minute().locale(preferences.language.locale)))", "Last checked: \(date.formatted(.dateTime.year().month().day().hour().minute().locale(preferences.language.locale)))")).font(.caption).foregroundStyle(.secondary)
-                }
-                if let message = updates.configurationMessage { Text(message).font(.caption).foregroundStyle(.secondary) }
-            }
-            card(L10n.text("唤起", "Activation"), symbol: "keyboard") {
+                if let error = preferences.shortcutError { warning(error) }
                 HStack {
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text(L10n.text("全局快捷键", "Global shortcut"))
-                        Text(L10n.text("支持单键或组合键。单键会占用该键的全局输入。", "Use a single key or a key combination. A single key is reserved system-wide.")).font(.caption).foregroundStyle(.secondary)
-                    }
+                    Text(L10n.text("快捷操作", "App actions"))
                     Spacer()
-                    ShortcutRecorder(shortcut: $preferences.options.shortcut).frame(width: 155, height: 34)
-                }
-                if let error = preferences.shortcutError { Text(error).font(.caption).foregroundStyle(.orange) }
-                HStack {
-                    Text(L10n.text("应用内轮盘快捷键", "App action ring shortcut"))
-                    Spacer()
-                    ShortcutRecorder(shortcut: $preferences.options.actionShortcut).frame(width: 155, height: 34)
+                    ShortcutRecorder(shortcut: $preferences.options.actionShortcut).frame(width: 145, height: 30)
                     if preferences.options.actionShortcut != nil {
-                        Button(L10n.text("清除", "Clear")) { preferences.options.actionShortcut = nil }
+                        Button { preferences.options.actionShortcut = nil } label: { Image(systemName: "xmark.circle.fill") }
+                            .buttonStyle(.plain).foregroundStyle(.secondary)
+                            .help(L10n.text("清除快捷键", "Clear shortcut"))
+                            .accessibilityLabel(L10n.text("清除快捷操作快捷键", "Clear app actions shortcut"))
                     }
                 }
-                Text(L10n.text("直接呼出当前应用的快捷操作；仍可双击左 Option 切换模式。", "Open actions for the current app directly. Double-tap left Option still switches modes."))
-                    .font(.caption).foregroundStyle(.secondary)
                 if preferences.options.invocationConflict {
-                    Text(L10n.text("两个轮盘快捷键不能相同。", "The two ring shortcuts must be different.")).font(.caption).foregroundStyle(.orange)
-                } else if let error = preferences.actionShortcutError { Text(error).font(.caption).foregroundStyle(.orange) }
-                Toggle(L10n.text("按住快捷键选择，松开立即切换", "Hold the shortcut to select; release to switch"), isOn: $preferences.options.holdToSelect)
-                Text(L10n.text("关闭时：按一次打开轮盘，点击目标切换，或点击轮盘外收起。", "When off, press once to open the ring. Click a target to switch, or click outside to dismiss.")).font(.caption).foregroundStyle(.secondary)
-                Divider()
-                Picker(L10n.text("触控板呼出轮盘", "Open the ring with trackpad"), selection: $preferences.options.trackpadTap) {
-                    ForEach(TrackpadTap.allCases, id: \.self) { Text($0.label).tag($0) }
-                }
-                Text(L10n.text("轻点后抬起手指，再移动鼠标选择；再次轻点关闭。", "Tap and lift your fingers, then move the pointer to choose. Tap again to close.")).font(.caption).foregroundStyle(.secondary)
-                if preferences.options.trackpadTap == .threeFingers {
-                    Text(L10n.text("为避免与系统查词冲突，请在系统设置 → 触控板 → 光标与点按中，将“查找与数据检测器”改为单指用力点按或关闭。", "To avoid triggering Look Up, go to System Settings → Trackpad → Point & Click and set Look up & data detectors to Force Click with One Finger or Off.")).font(.caption).foregroundStyle(.secondary)
-                }
-                Toggle(L10n.text("三指捏合最小化窗口", "Three-finger pinch to minimize the window"), isOn: $preferences.options.threeFingerPinch)
-                Text(L10n.text("三指向内捏合后抬起，最小化当前窗口；在 LumaRing 设置中则关闭设置窗口。需要辅助功能权限，默认关闭。", "Pinch inward with three fingers and lift to minimize the current window, or close LumaRing Settings. Requires Accessibility permission; off by default.")).font(.caption).foregroundStyle(.secondary)
-                if let message = trackpad.message {
-                    HStack(alignment: .top) {
-                        Text(message).font(.caption).foregroundStyle(.orange)
-                        Spacer()
-                        Button(L10n.text("重试", "Retry")) { trackpad.retry() }
-                    }
-                }
+                    warning(L10n.text("两个轮盘不能使用相同快捷键。", "The two rings need different shortcuts."))
+                } else if let error = preferences.actionShortcutError { warning(error) }
                 Divider()
                 Toggle(L10n.text("登录时启动", "Launch at login"), isOn: $loginEnabled).onChange(of: loginEnabled) { _, value in
                     do {
@@ -158,109 +145,185 @@ struct SettingsView: View {
                     } catch { loginError = L10n.text("无法更改登录项：\(error.localizedDescription)", "Could not change the login item: \(error.localizedDescription)") }
                     loginEnabled = SMAppService.mainApp.status == .enabled
                 }
-                if let loginError { Text(loginError).font(.caption).foregroundStyle(.orange) }
+                if let loginError { warning(loginError) }
             }
-            card(L10n.text("轮盘", "Ring"), symbol: "circle.circle") {
+            card(L10n.text("如何切换", "Choose how to switch")) {
+                Picker(L10n.text("切换方式", "Selection mode"), selection: $preferences.options.holdToSelect) {
+                    Text(L10n.text("点击切换", "Click to switch")).tag(false)
+                    Text(L10n.text("松手切换", "Release to switch")).tag(true)
+                }.pickerStyle(.segmented).labelsHidden()
+                hint(preferences.options.holdToSelect
+                    ? L10n.text("按住快捷键 → 指向目标 → 松手切换。移出轮盘也可选择。", "Hold the shortcut → point at a target → release. You can move beyond the ring.")
+                    : L10n.text("按快捷键打开轮盘，点击应用、窗口或标签页切换。", "Open the ring, then click an app, window or tab."))
                 HStack {
-                    Text(L10n.text("圆盘直径", "Ring diameter"))
+                    Text("Esc").fontWeight(.medium)
+                    Text(L10n.text("取消选择", "Cancel selection")).foregroundStyle(.secondary)
+                }.font(.caption)
+            }
+            card(L10n.text("触控板", "Trackpad")) {
+                Picker(L10n.text("轻点打开轮盘", "Tap to open"), selection: $preferences.options.trackpadTap) {
+                    ForEach(TrackpadTap.allCases, id: \.self) { Text($0.label).tag($0) }
+                }
+                if preferences.options.trackpadTap != .disabled {
+                    hint(L10n.text("轻点后抬手，再移动鼠标选择。", "Tap, lift your fingers, then move the pointer."))
+                }
+                if preferences.options.trackpadTap == .threeFingers {
+                    DisclosureGroup(L10n.text("与系统查词冲突？", "Look Up opens too?")) {
+                        hint(L10n.text("系统设置 → 触控板 → 光标与点按：将“查找与数据检测器”改为单指用力点按或关闭。", "In System Settings → Trackpad → Point & Click, set Look up & data detectors to Force Click with One Finger or Off."))
+                    }.font(.caption)
+                }
+                Toggle(L10n.text("三指捏合最小化窗口", "Three-finger pinch to minimize"), isOn: $preferences.options.threeFingerPinch)
+                    .help(L10n.text("向内捏合后抬手；在 LumaRing 中关闭设置窗口。需要辅助功能权限。", "Pinch inward and lift. In LumaRing, this closes Settings. Requires Accessibility access."))
+                if let message = trackpad.message {
+                    HStack(alignment: .top) {
+                        warning(message)
+                        Spacer()
+                        Button(L10n.text("重试", "Retry")) { trackpad.retry() }
+                    }
+                }
+            }
+        }
+    }
+
+    private var appearance: some View {
+        Group {
+            card(L10n.text("显示", "Display")) {
+                Picker(L10n.text("语言", "Language"), selection: $preferences.language) {
+                    ForEach(AppLanguage.allCases, id: \.self) { Text($0.title).tag($0) }
+                }
+                Picker(L10n.text("主题", "Theme"), selection: $preferences.options.theme) {
+                    ForEach(AppTheme.allCases, id: \.self) { Text($0.title).tag($0) }
+                }
+                Picker(L10n.text("材质", "Material"), selection: $preferences.options.ringMaterial) {
+                    ForEach(RingMaterialStyle.allCases, id: \.self) { Text($0.title).tag($0).disabled(!$0.isAvailable) }
+                }
+            }
+            card(L10n.text("轮盘", "Ring")) {
+                HStack {
+                    Text(L10n.text("直径", "Diameter")).frame(width: 72, alignment: .leading)
                     Slider(value: $preferences.options.ringSize, in: 400...560, step: 20)
-                    Text("\(Int(preferences.options.ringSize * 236 / 480)) pt").monospacedDigit().frame(width: 62)
+                    Text("\(Int(preferences.options.ringSize * 236 / 480)) pt").monospacedDigit().frame(width: 58, alignment: .trailing)
                 }
+                Stepper(value: $preferences.options.centerTitleSize, in: Options.centerTitleSizeRange) {
+                    valueLabel(L10n.text("中央文字", "Center text"), "\(preferences.options.centerTitleSize) pt")
+                }
+                Divider()
                 Stepper(value: $preferences.options.appPageSize, in: 4...24) {
-                    HStack {
-                        Text(L10n.text("分区大小", "Apps per page"))
-                        Spacer()
-                        Text(L10n.text("每页 \(preferences.options.appPageSize) 个 App", "\(preferences.options.appPageSize) apps per page")).monospacedDigit().foregroundStyle(.secondary)
-                    }
+                    valueLabel(L10n.text("每页应用", "Apps per page"), "\(preferences.options.appPageSize)")
                 }
-                Text(L10n.text("默认 12 个，可设为 6、8、16 等；图标随数量自动调整大小。", "Defaults to 12. Choose 6, 8, 16, or another count; icons resize to fit.")).font(.caption).foregroundStyle(.secondary)
                 Stepper(value: $preferences.options.windowPageSize, in: RingGeometry.windowPageSizeRange) {
-                    HStack {
-                        Text(L10n.text("二级轮盘每页数量", "Outer ring items per page"))
-                        Spacer()
-                        Text(L10n.text("每页 \(preferences.options.windowPageSize) 个", "\(preferences.options.windowPageSize) per page")).monospacedDigit().foregroundStyle(.secondary)
-                    }
+                    valueLabel(L10n.text("每页窗口 / 标签页", "Windows / tabs per page"), "\(preferences.options.windowPageSize)")
                 }
-                Text(L10n.text("默认 6 个，可设为 2–8 个；窗口和标签页模式均适用。", "Defaults to 6. Choose 2–8; applies to both windows and tabs.")).font(.caption).foregroundStyle(.secondary)
-                HStack {
-                    Text(L10n.text("预览大小", "Preview size"))
-                    Slider(value: $preferences.options.previewWidth, in: 400...960, step: 40)
-                    Text("\(Int(preferences.options.previewWidth)) × \(Int(preferences.options.previewSize.height)) pt")
-                        .monospacedDigit().frame(width: 108)
-                }
-                Text(L10n.text("默认 840 × 630 pt；空间不足时自动缩小，保持在圆盘旁。", "Defaults to 840 × 630 pt. Previews shrink to fit beside the ring.")).font(.caption).foregroundStyle(.secondary)
-                Toggle(L10n.text("包含已最小化的窗口", "Include minimized windows"), isOn: $preferences.options.includeMinimized)
-                Toggle(L10n.text("按应用名称排序", "Sort apps by name"), isOn: $preferences.options.sortByName)
-                Text(L10n.text("默认按名称排序；关闭后按最近使用排列。", "When off, apps are sorted by recent use.")).font(.caption).foregroundStyle(.secondary)
             }
-            logSettings
+            card(L10n.text("窗口预览", "Window previews")) {
+                Toggle(L10n.text("悬停时显示预览", "Show previews on hover"), isOn: $preferences.options.previews)
+                HStack {
+                    Text(L10n.text("大小", "Size")).frame(width: 72, alignment: .leading)
+                    Slider(value: $preferences.options.previewWidth, in: 400...960, step: 40)
+                    Text("\(Int(preferences.options.previewWidth)) pt").monospacedDigit().frame(width: 58, alignment: .trailing)
+                }.disabled(!preferences.options.previews)
+                    .help(L10n.text("预览会自动缩小以适应屏幕。最小化窗口不提供图片预览。", "Previews shrink to fit the screen. Minimized windows have no image preview."))
+                if preferences.options.previews && !preferences.screenCaptureGranted {
+                    Button(L10n.text("设置屏幕录制权限…", "Set up Screen Recording access…")) { selectedSection = .permissions }
+                        .font(.caption)
+                }
+            }
         }
     }
 
     private var permissions: some View {
         Group {
-            card(L10n.text("辅助功能", "Accessibility"), symbol: "accessibility") {
-                Text(L10n.text("读取各 App 的窗口标题，并将你选中的窗口置前。", "Read window titles and bring the selected window to the front."))
+            card(L10n.text("辅助功能", "Accessibility")) {
+                hint(L10n.text("用于切换窗口和使用捏合手势。", "Switch windows and use the pinch gesture."))
                 HStack {
-                    Label(preferences.accessibilityGranted ? L10n.text("已授权", "Access granted") : L10n.text("尚未授权", "Access not granted"), systemImage: preferences.accessibilityGranted ? "checkmark.circle.fill" : "lock.circle")
-                        .foregroundStyle(preferences.accessibilityGranted ? Color.mint : Color.orange)
+                    permissionStatus(preferences.accessibilityGranted)
                     Spacer()
-                    Button(preferences.accessibilityGranted ? L10n.text("打开系统设置", "Open System Settings") : L10n.text("授予辅助功能权限", "Grant Accessibility Access")) {
+                    Button(preferences.accessibilityGranted ? L10n.text("系统设置…", "System Settings…") : L10n.text("授权…", "Grant access…")) {
                         preferences.requestAccessibility()
                     }
                 }
-                Text(L10n.text("在系统设置中打开 LumaRing 的开关，然后回到这里。无需重启电脑。", "Enable LumaRing in System Settings, then return here. No need to restart your Mac.")).font(.caption).foregroundStyle(.secondary)
+                if !preferences.accessibilityGranted {
+                    hint(L10n.text("在系统设置中开启 LumaRing，然后返回这里。", "Enable LumaRing in System Settings, then return here."))
+                }
             }
-            card(L10n.text("窗口预览", "Window Previews"), symbol: "macwindow") {
-                Toggle(L10n.text("悬停窗口时展开大预览", "Show a large preview when hovering over a window"), isOn: $preferences.options.previews)
-                Text(L10n.text("预览就近显示在圆弧旁，自动避让圆盘和屏幕边缘。", "Previews appear beside the arc and adjust to the ring and screen edges.")).font(.caption).foregroundStyle(.secondary)
+            card(L10n.text("屏幕录制", "Screen Recording")) {
+                hint(L10n.text("仅用于窗口图片预览。", "Used for window image previews."))
                 HStack {
-                    Label(preferences.screenCaptureGranted ? L10n.text("已授权", "Access granted") : L10n.text("尚未授权", "Access not granted"), systemImage: preferences.screenCaptureGranted ? "checkmark.circle.fill" : "lock.circle")
-                        .foregroundStyle(preferences.screenCaptureGranted ? Color.mint : Color.orange)
+                    permissionStatus(preferences.screenCaptureGranted)
                     Spacer()
-                    Button(preferences.checkingCapture ? L10n.text("正在检测…", "Checking…") : L10n.text("检测预览权限", "Check Preview Access")) { preferences.requestCapture() }
+                    Button(preferences.checkingCapture ? L10n.text("检测中…", "Checking…") : L10n.text("检测权限", "Check access")) { preferences.requestCapture() }
                         .disabled(preferences.checkingCapture)
+                    Button(L10n.text("系统设置…", "System Settings…")) { preferences.openPrivacy("Privacy_ScreenCapture") }
                 }
                 if let message = preferences.captureMessage {
                     Text(message).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
                 }
-                Button(L10n.text("打开屏幕录制设置", "Open Screen Recording Settings")) { preferences.openPrivacy("Privacy_ScreenCapture") }
-                Text(L10n.text("若系统开关已开启但检测仍被拒绝，请在系统设置中移除旧的 LumaRing，再添加 Applications 中的当前版本，然后退出并重开应用。最小化窗口暂不提供图片预览。", "If access is denied despite being enabled, remove the old LumaRing entry in System Settings, add the current app from Applications, then quit and reopen it. Minimized windows do not have image previews.")).font(.caption).foregroundStyle(.secondary)
             }
+            DisclosureGroup(L10n.text("已授权，仍无法使用？", "Access enabled but not working?")) {
+                hint(L10n.text("在系统设置中移除旧的 LumaRing，重新添加 Applications 中的当前版本，再退出并重开应用。", "Remove the old LumaRing entry in System Settings, add the current app from Applications, then quit and reopen it."))
+                    .padding(.top, 6)
+            }.font(.system(size: 12))
+        }
+    }
+
+    private func permissionStatus(_ granted: Bool) -> some View {
+        Label(granted ? L10n.text("已授权", "Allowed") : L10n.text("未授权", "Not allowed"),
+              systemImage: granted ? "checkmark.circle.fill" : "lock.circle")
+            .foregroundStyle(granted ? Color.green : Color.orange)
+    }
+
+    private var about: some View {
+        Group {
+            card("LumaRing") {
+                HStack {
+                    Text("v\(UpdateService.version)").monospacedDigit()
+                    Spacer()
+                    Button(L10n.text("检查更新…", "Check for updates…")) { updates.checkForUpdates() }.disabled(!updates.canCheck)
+                }
+                Divider()
+                Toggle(L10n.text("自动检查更新", "Check for updates automatically"), isOn: Binding(get: { updates.automaticChecks }, set: { updates.setAutomaticChecks($0) }))
+                    .disabled(updates.configurationMessage != nil)
+                hint(L10n.text("每天检查，由你确认安装。", "Checks daily. You choose when to install."))
+                if let date = updates.lastChecked {
+                    hint(L10n.text("上次检查：\(date.formatted(.dateTime.month().day().hour().minute().locale(preferences.language.locale)))", "Last checked: \(date.formatted(.dateTime.month().day().hour().minute().locale(preferences.language.locale)))"))
+                }
+                if let message = updates.configurationMessage { warning(message) }
+            }
+            logSettings
         }
     }
 
     private var logSettings: some View {
-        card(L10n.text("本地日志", "Local Logs"), symbol: "doc.text") {
-            Toggle(L10n.text("记录运行日志", "Record application logs"), isOn: $preferences.options.loggingEnabled)
-            Text(L10n.text("用于排查问题，仅保存在本机。不记录窗口标题、网址、自定义名称或文档内容。", "For troubleshooting, stored only on this Mac. Window titles, URLs, custom names and document contents are not recorded."))
-                .font(.caption).foregroundStyle(.secondary)
-            Text(L10n.text("最多保留 10 MB，超限自动删除最旧日志。关闭后停止记录，已有日志可手动清理。", "Keeps up to 10 MB and removes the oldest logs automatically. Turning logging off stops recording; existing logs can be cleared below."))
-                .font(.caption).foregroundStyle(.secondary)
-            HStack {
-                Text(L10n.text("已用 \(ByteCountFormatter.string(fromByteCount: Int64(logStatus.bytes), countStyle: .file))", "Used: \(ByteCountFormatter.string(fromByteCount: Int64(logStatus.bytes), countStyle: .file))"))
-                    .font(.caption).foregroundStyle(.secondary)
-                Spacer()
-                Button(L10n.text("打开日志文件夹", "Open Log Folder")) {
-                    logBusy = true
-                    Task { @MainActor in
-                        if let folder = await AppLog.shared.folder() { NSWorkspace.shared.open(folder) }
-                        logStatus = await AppLog.shared.status()
-                        logBusy = false
+        card(L10n.text("诊断", "Diagnostics")) {
+            DisclosureGroup(L10n.text("本地日志", "Local logs")) {
+                VStack(alignment: .leading, spacing: 12) {
+                    Toggle(L10n.text("记录运行日志", "Record application logs"), isOn: $preferences.options.loggingEnabled)
+                    hint(L10n.text("仅保存在本机，最多 10 MB；不记录窗口标题、网址或文档内容。", "Stored on this Mac, up to 10 MB. No window titles, URLs or document contents."))
+                    HStack {
+                        Text(ByteCountFormatter.string(fromByteCount: Int64(logStatus.bytes), countStyle: .file))
+                            .font(.caption).foregroundStyle(.secondary)
+                        Spacer()
+                        Button(L10n.text("打开文件夹", "Open folder")) {
+                            logBusy = true
+                            Task { @MainActor in
+                                if let folder = await AppLog.shared.folder() { NSWorkspace.shared.open(folder) }
+                                logStatus = await AppLog.shared.status()
+                                logBusy = false
+                            }
+                        }
+                        Button(L10n.text("清理", "Clear")) {
+                            logBusy = true
+                            Task { @MainActor in
+                                _ = await AppLog.shared.clear()
+                                logStatus = await AppLog.shared.status()
+                                logBusy = false
+                            }
+                        }.accessibilityLabel(L10n.text("清理日志", "Clear logs"))
+                    }.disabled(logBusy)
+                    if logStatus.writeFailed {
+                        warning(L10n.text("无法访问日志，请检查文件夹权限或磁盘空间。", "Cannot access logs. Check folder permissions or disk space."))
                     }
-                }
-                Button(L10n.text("清理日志", "Clear Logs")) {
-                    logBusy = true
-                    Task { @MainActor in
-                        _ = await AppLog.shared.clear()
-                        logStatus = await AppLog.shared.status()
-                        logBusy = false
-                    }
-                }
-            }.disabled(logBusy)
-            if logStatus.writeFailed {
-                Text(L10n.text("日志文件暂时无法访问，请检查文件夹权限或剩余磁盘空间。", "Log files could not be accessed. Check folder permissions or available disk space."))
-                    .font(.caption).foregroundStyle(.orange)
+                }.padding(.top, 12)
             }
         }
         .task { logStatus = await AppLog.shared.status() }
@@ -270,12 +333,9 @@ struct SettingsView: View {
     }
 
     private var launcherSettings: some View {
-        card(L10n.text("快捷启动", "Quick Launch"), symbol: "option") {
-            Text(L10n.text("应用内轮盘中，或全局轮盘未展开二级轮盘时，按住 Option 显示这些应用，松开返回。全局轮盘也可双击中心展开或收起。", "In the action ring, or the global ring with no secondary ring open, hold Option for these apps and release to return. Double-clicking the global ring's center also toggles favorites."))
-                .font(.caption).foregroundStyle(.secondary)
-            if preferences.options.launcherApps.isEmpty {
-                Text(L10n.text("添加常用应用，即使尚未运行也能启动。", "Add your favorite apps, including ones that are not running.")).foregroundStyle(.secondary)
-            }
+        card(L10n.text("常用应用", "Favorites")) {
+            hint(L10n.text("在轮盘中按住 Option 显示，未运行的应用也能打开。", "Hold Option in the ring to show favorites, including apps that aren’t running."))
+                .help(L10n.text("全局轮盘未展开二级轮盘时可用；也可双击中心展开或收起。", "Available when the app ring has no secondary arc open. You can also double-click its center to toggle favorites."))
             ForEach(preferences.options.launcherApps) { app in
                 HStack {
                     Image(nsImage: NSWorkspace.shared.icon(forFile: app.path)).resizable().frame(width: 24, height: 24)
@@ -284,9 +344,9 @@ struct SettingsView: View {
                     Button(L10n.text("移除", "Remove")) { preferences.options.launcherApps.removeAll { $0.id == app.id } }
                 }
             }
-            Button(L10n.text("添加应用…", "Add Apps…")) {
+            Button(L10n.text("添加应用…", "Add apps…")) {
                 let panel = NSOpenPanel()
-                panel.title = L10n.text("添加快捷启动应用", "Add Quick Launch Apps")
+                panel.title = L10n.text("添加常用应用", "Add favorites")
                 panel.prompt = L10n.text("添加", "Add")
                 panel.allowedContentTypes = [.applicationBundle]
                 panel.allowsMultipleSelection = true
@@ -302,9 +362,14 @@ struct SettingsView: View {
     }
 
     private var appFilter: some View {
-        card(L10n.text("轮盘中的应用", "Apps in the Ring"), symbol: "square.grid.2x2") {
-            Text(L10n.text("取消勾选即可隐藏。这里只列出正在运行的普通应用。", "Uncheck an app to hide it. Only currently running regular apps are listed.")).font(.caption).foregroundStyle(.secondary)
-            Text(L10n.text("每个应用默认显示窗口。Edge 和 Chrome 可切换为标签页，其他应用暂未适配。", "Apps show windows by default. Edge and Chrome also support tabs.")).font(.caption).foregroundStyle(.secondary)
+        card(L10n.text("轮盘中的应用", "Apps in the ring")) {
+            Picker(L10n.text("排列顺序", "Sort by"), selection: $preferences.options.sortByName) {
+                Text(L10n.text("应用名称", "Name")).tag(true)
+                Text(L10n.text("最近使用", "Recent use")).tag(false)
+            }
+            Toggle(L10n.text("包含最小化窗口", "Include minimized windows"), isOn: $preferences.options.includeMinimized)
+            Divider()
+            hint(L10n.text("取消勾选即可隐藏应用。", "Uncheck an app to hide it."))
             ForEach(apps.filter { $0.bundleIdentifier != nil }, id: \.processIdentifier) { app in
                 let identifier = app.bundleIdentifier ?? ""
                 VStack(alignment: .leading, spacing: 7) {
@@ -326,66 +391,91 @@ struct SettingsView: View {
                             )) {
                                 Text(L10n.text("窗口", "Windows")).tag(AppContentMode.windows)
                                 Text(L10n.text("标签页", "Tabs")).tag(AppContentMode.tabs)
-                            }.labelsHidden().pickerStyle(.segmented).frame(width: 150)
-                                .help(L10n.text("选择圆弧中显示的内容", "Choose what appears in the arc"))
-                        } else {
-                            Text(L10n.text("窗口", "Windows")).foregroundStyle(.secondary)
+                            }.labelsHidden().pickerStyle(.segmented).frame(width: 140)
                         }
                     }
                     if preferences.options.contentMode(for: identifier) == .tabs {
                         HStack(alignment: .top) {
-                            Label(browserTabs.messages[identifier] ?? L10n.text("需要连接浏览器，允许读取和切换标签页。", "Connect the browser to allow reading and switching tabs."),
-                                  systemImage: browserTabs.connected.contains(identifier) ? "checkmark.circle.fill" : "lock.circle")
-                                .font(.caption)
-                                .foregroundStyle(browserTabs.connected.contains(identifier) ? Color.mint : Color.orange)
-                                .fixedSize(horizontal: false, vertical: true)
-                            Spacer()
-                            Button(browserTabs.connecting.contains(identifier) ? L10n.text("连接中…", "Connecting…") : L10n.text("连接浏览器", "Connect Browser")) { browserTabs.connect(app) }
-                                .disabled(browserTabs.connecting.contains(identifier))
+                            if browserTabs.connected.contains(identifier) {
+                                Label(L10n.text("已连接", "Connected"), systemImage: "checkmark.circle.fill")
+                                    .font(.caption).foregroundStyle(.green)
+                            } else {
+                                warning(browserTabs.messages[identifier] ?? L10n.text("连接浏览器以切换标签页。", "Connect to switch tabs."))
+                                Spacer()
+                                Button(browserTabs.connecting.contains(identifier) ? L10n.text("连接中…", "Connecting…") : L10n.text("连接", "Connect")) { browserTabs.connect(app) }
+                                    .disabled(browserTabs.connecting.contains(identifier))
+                            }
                         }.padding(.leading, 22)
                     }
                 }
             }
-            Text(L10n.text("标签页悬停显示标题与网址；图片预览用于窗口。连接只需首次授权，可在系统设置的“自动化”中管理。", "Tab previews show titles and URLs; window previews show images. Authorize the browser once, then manage access under Automation in System Settings.")).font(.caption).foregroundStyle(.secondary)
             HStack {
-                Button(L10n.text("刷新应用列表", "Refresh App List")) { refresh() }
+                Button(L10n.text("刷新", "Refresh")) { refresh() }
                 Spacer()
-                Button(L10n.text("显示全部应用", "Show All Apps")) { preferences.options.excludedBundleIDs = [] }
-            }.padding(.top, 8)
+                Button(L10n.text("显示全部", "Show all")) { preferences.options.excludedBundleIDs = [] }
+            }
         }
     }
 
     private var guide: some View {
         Group {
-            card(L10n.text("常用操作", "Common Controls"), symbol: "circle.circle") {
-                guideRow(preferences.options.shortcut.display, L10n.text("呼出 / 收起轮盘", "Open / dismiss the ring"))
-                guideRow(L10n.text("三指或四指轻点后抬起", "Tap with three or four fingers and lift"), L10n.text("呼出 / 收起轮盘", "Open / dismiss the ring"))
-                guideRow(L10n.text("未展开二级轮盘时，按住 Option", "Hold Option with no secondary ring open"), L10n.text("显示常用应用外圈，松开返回", "Show favorites; release to return"))
-                guideRow(L10n.text("全局轮盘无二级轮盘时，双击中心", "Double-click the global ring’s center with no secondary ring open"), L10n.text("展开 / 收起常用应用", "Show / hide favorites"))
-                guideRow(L10n.text("三指向内捏合后抬起", "Pinch inward with three fingers and lift"), L10n.text("最小化当前窗口；在 LumaRing 中关闭设置", "Minimize the current window; close LumaRing Settings"))
-                guideRow(L10n.text("轮盘打开时，双击左 Option", "Double-tap left Option with the ring open"), L10n.text("切换全局 / 应用内轮盘", "Switch between apps and app actions"))
-                guideRow(L10n.text("滚动，或点击中心翻页箭头", "Scroll, or click the center paging arrows"), L10n.text("翻页", "Change pages"))
+            card(L10n.text("开始使用", "Start here")) {
+                guideRow(preferences.options.shortcut.display, L10n.text("打开轮盘", "Open the ring"))
+                guideRow(L10n.text("移动鼠标", "Move the pointer"), L10n.text("选择应用或窗口", "Choose an app or window"))
+                guideRow(preferences.options.holdToSelect ? L10n.text("松开快捷键", "Release the shortcut") : L10n.text("点击目标", "Click the target"), L10n.text("切换过去", "Switch to it"))
+                guideRow("Esc", L10n.text("取消选择", "Cancel"))
+                if preferences.options.holdToSelect {
+                    hint(L10n.text("选区向外延伸；二级轮盘内选窗口或标签页，越过侧边界选其他应用。", "Selection extends outward. Stay within the secondary arc to choose a window or tab; cross its sides to choose another app."))
+                }
             }
-            card(L10n.text("键盘选择", "Keyboard Navigation"), symbol: "keyboard") {
-                guideRow("Tab / Shift + Tab", L10n.text("顺时针 / 逆时针选择；长按连续移动，松开停止", "Select clockwise / counterclockwise; hold to repeat, release to stop"))
-                guideRow(L10n.text("` / ~ 键（数字 1 左侧）", "` / ~ key (left of 1)"), L10n.text("按一次进入二级轮盘，再按一次返回", "Press to enter the secondary ring; press again to return"))
-                guideRow(L10n.text("回车", "Return"), L10n.text("进入选中目标，或执行选中操作", "Go to the selection, or run the selected action"))
+            card(L10n.text("键盘选择", "Keyboard navigation")) {
+                guideRow("Tab / Shift + Tab", L10n.text("下一个 / 上一个", "Next / previous"))
+                guideRow("` / ~", L10n.text("进入 / 返回二级轮盘", "Enter / leave the secondary ring"))
+                guideRow(L10n.text("回车", "Return"), L10n.text("确认选择", "Confirm"))
             }
-            card(L10n.text("窗口与应用管理", "Manage Windows & Apps"), symbol: "macwindow") {
-                guideRow(L10n.text("点击二级项目的 ×，或右键 → 关闭", "Click × on a secondary item, or right-click → Close"), L10n.text("关闭该窗口或标签页", "Close that window or tab"))
-                guideRow(L10n.text("将应用图标拖出一级轮盘，或右键 → 退出应用", "Drag an app icon out of the primary ring, or right-click → Quit App"), L10n.text("退出该应用", "Quit the app"))
-                guideRow(L10n.text("右键应用 → 新建窗口", "Right-click an app → New Window"), L10n.text("新建窗口（应用支持时显示）", "Create a window, when supported"))
-                guideRow(L10n.text("右键应用 → 二级轮盘显示", "Right-click an app → Secondary Ring Shows"), L10n.text("选择窗口或标签页（支持的应用）", "Choose windows or tabs, for supported apps"))
-                guideRow(L10n.text("右键窗口或标签页 → 修改", "Right-click a window or tab → Edit"), L10n.text("修改名称和扇形颜色，保存生效", "Change the name and sector color, then save"))
+            card(L10n.text("更多操作", "More controls")) {
+                DisclosureGroup(L10n.text("手势与常用应用", "Gestures and favorites")) {
+                    VStack(spacing: 12) {
+                        guideRow(L10n.text("轻点后抬手", "Tap and lift"), L10n.text("打开 / 关闭轮盘", "Open / dismiss the ring"))
+                        guideRow(L10n.text("按住 Option", "Hold Option"), L10n.text("显示常用应用", "Show favorites"))
+                        guideRow(L10n.text("双击中心", "Double-click the center"), L10n.text("展开 / 收起常用应用", "Toggle favorites"))
+                        hint(L10n.text("常用应用在无二级轮盘时显示。", "Favorites appear when no secondary arc is open."))
+                        guideRow(L10n.text("双击左 Option", "Double-tap left Option"), L10n.text("应用 / 快捷操作", "Apps / app actions"))
+                        guideRow(L10n.text("三指向内捏合后抬手", "Pinch inward, then lift"), L10n.text("最小化窗口", "Minimize the window"))
+                        guideRow(L10n.text("滚动", "Scroll"), L10n.text("翻页", "Change pages"))
+                    }.padding(.top, 12)
+                }
+                Divider()
+                DisclosureGroup(L10n.text("管理窗口和应用", "Manage windows and apps")) {
+                    VStack(spacing: 12) {
+                        guideRow(L10n.text("点击 ×", "Click ×"), L10n.text("关闭窗口或标签页", "Close a window or tab"))
+                        guideRow(L10n.text("拖出应用图标", "Drag an app icon out"), L10n.text("退出应用", "Quit the app"))
+                        guideRow(L10n.text("右键应用", "Right-click an app"), L10n.text("新建窗口、切换标签页模式", "New window, tab mode"))
+                        guideRow(L10n.text("右键窗口 → 修改", "Right-click a window → Edit"), L10n.text("修改名称和颜色", "Rename or recolor"))
+                    }.padding(.top, 12)
+                }
             }
         }
     }
 
     private func guideRow(_ action: String, _ result: String) -> some View {
-        HStack(alignment: .top, spacing: 20) {
-            Text(action).frame(width: 265, alignment: .leading)
-            Text(result).frame(maxWidth: .infinity, alignment: .leading)
+        HStack(alignment: .top, spacing: 16) {
+            Text(action).fontWeight(.medium).frame(maxWidth: .infinity, alignment: .leading)
+            Text(result).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .trailing)
+                .multilineTextAlignment(.trailing)
         }.fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func valueLabel(_ label: String, _ value: String) -> some View {
+        HStack { Text(label); Spacer(); Text(value).monospacedDigit().foregroundStyle(.secondary) }
+    }
+
+    private func hint(_ text: String) -> some View {
+        Text(text).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func warning(_ text: String) -> some View {
+        Text(text).font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
     }
 
     private func refresh() {
@@ -396,13 +486,15 @@ struct SettingsView: View {
         browserTabs.refreshAuthorization(apps)
     }
 
-    private func card<Content: View>(_ title: String, symbol: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 13) {
-            Label(title, systemImage: symbol).font(.system(size: 14, weight: .semibold)).padding(.bottom, 3)
-            content().font(.system(size: 12))
-        }.padding(19).frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.primary.opacity(0.07)))
+    private func card<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 9) {
+            Text(title).font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary).padding(.leading, 2)
+            VStack(alignment: .leading, spacing: 13) {
+                content().font(.system(size: 13))
+            }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.06)))
+        }
     }
 }
 

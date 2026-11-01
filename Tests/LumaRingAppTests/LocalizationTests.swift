@@ -4,6 +4,57 @@ import SwiftUI
 @testable import LumaRing
 
 final class LocalizationTests: XCTestCase {
+    @MainActor func testSettingsPageSnapshots() async throws {
+        guard let directory = ProcessInfo.processInfo.environment["LUMARING_SETTINGS_SNAPSHOTS"] else { return }
+        _ = NSApplication.shared
+        let preferences = Preferences.shared
+        let originalLanguage = preferences.language
+        let originalStoredValue = UserDefaults.standard.object(forKey: AppLanguage.preferenceKey)
+        let captureMessage = preferences.captureMessage
+        let shortcutError = preferences.shortcutError
+        defer {
+            preferences.language = originalLanguage
+            UserDefaults.standard.set(originalStoredValue, forKey: AppLanguage.preferenceKey)
+            preferences.captureMessage = captureMessage
+            preferences.shortcutError = shortcutError
+        }
+        let output = URL(fileURLWithPath: directory)
+        try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+        for language in AppLanguage.allCases {
+            preferences.language = language
+            for section in SettingsSection.allCases {
+                for appearance in [NSAppearance.Name.aqua, .darkAqua] {
+                    if appearance == .darkAqua && (language != .simplifiedChinese || section != .general) { continue }
+                    let host = NSHostingView(rootView: SettingsView(section: section))
+                    let frame = NSRect(x: 0, y: 0, width: 680, height: 690)
+                    let window = NSWindow(contentRect: frame, styleMask: .borderless, backing: .buffered, defer: false)
+                    window.isReleasedWhenClosed = false
+                    window.contentView = host
+                    host.frame = frame
+                    host.appearance = NSAppearance(named: appearance)
+                    window.setFrameOrigin(NSPoint(x: -10000, y: -10000))
+                    window.orderFront(nil)
+                    try await Task.sleep(nanoseconds: 150_000_000)
+                    host.layoutSubtreeIfNeeded(); host.displayIfNeeded()
+                    let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+                    let context = try XCTUnwrap(NSGraphicsContext(bitmapImageRep: bitmap))
+                    NSGraphicsContext.saveGraphicsState()
+                    NSGraphicsContext.current = context
+                    let cg = context.cgContext
+                    cg.concatenate(cg.ctm.inverted())
+                    cg.translateBy(x: 0, y: CGFloat(bitmap.pixelsHigh))
+                    cg.scaleBy(x: CGFloat(bitmap.pixelsWide) / host.bounds.width,
+                               y: -CGFloat(bitmap.pixelsHigh) / host.bounds.height)
+                    host.layer?.render(in: cg)
+                    NSGraphicsContext.restoreGraphicsState()
+                    try XCTUnwrap(bitmap.representation(using: .png, properties: [:])).write(to:
+                        output.appendingPathComponent("\(section)-\(language.rawValue)-\(appearance.rawValue).png"))
+                    window.close()
+                }
+            }
+        }
+    }
+
     private func defaults() -> UserDefaults {
         let suite = "local.lumaring.language-tests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!

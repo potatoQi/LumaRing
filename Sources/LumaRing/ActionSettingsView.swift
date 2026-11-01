@@ -32,9 +32,14 @@ struct ActionSettingsView: View {
                     }.help(L10n.text("删除此应用的全部快捷操作", "Remove all actions configured for this app"))
                 }
             } else {
-                Text(L10n.text("添加应用后，为操作命名并录入快捷键。", "Add an app, name each action and record its shortcut.")).foregroundStyle(.secondary)
+                VStack(spacing: 8) {
+                    Image(systemName: "bolt.circle").font(.system(size: 28)).foregroundStyle(.secondary)
+                    Text(L10n.text("把常用快捷键放进轮盘", "Keep shortcuts in the ring")).fontWeight(.medium)
+                    Text(L10n.text("添加应用，再设置操作名称和快捷键。", "Add an app, then name and record its shortcuts."))
+                        .font(.caption).foregroundStyle(.secondary)
+                }.frame(maxWidth: .infinity).padding(.vertical, 18)
             }
-            Text(L10n.text("轮盘打开时，双击左 Option 切换模式。每个应用独立记忆。", "Double-tap left Option with the ring open to switch modes. Each app remembers its choice."))
+            Text(L10n.text("轮盘中双击左 Option，即可切换到快捷操作。", "Double-tap left Option in the ring to switch to app actions."))
                 .font(.caption).foregroundStyle(.secondary)
         }.onAppear { if selected == nil { selected = profiles.first?.id } }
     }
@@ -63,10 +68,13 @@ private struct ActionProfileEditor: View {
                         ShortcutRecorder(shortcut: $action.shortcut).frame(width: 130, height: 28)
                         Button { profile.move(action.id, by: -1) } label: { Image(systemName: "arrow.up") }
                             .disabled(profile.actions.first?.id == action.id).help(L10n.text("上移", "Move up"))
+                            .accessibilityLabel(L10n.text("上移操作", "Move action up"))
                         Button { profile.move(action.id, by: 1) } label: { Image(systemName: "arrow.down") }
                             .disabled(profile.actions.last?.id == action.id).help(L10n.text("下移", "Move down"))
+                            .accessibilityLabel(L10n.text("下移操作", "Move action down"))
                         Button { profile.actions.removeAll { $0.id == action.id } } label: { Image(systemName: "minus.circle") }
                             .help(L10n.text("删除操作", "Remove action"))
+                            .accessibilityLabel(L10n.text("删除操作", "Remove action"))
                     }
                     if invocations.contains(where: { action.conflicts(with: $0) }) {
                         Text(L10n.text("与轮盘呼出快捷键冲突，请更换。", "Conflicts with the ring shortcut. Choose another combination."))
