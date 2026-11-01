@@ -24,7 +24,6 @@ final class AppLog: @unchecked Sendable {
 
     static let shared = AppLog(directory: FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Logs/LumaRing", isDirectory: true))
-    static let totalByteLimit = 10_000_000
     let directory: URL
     private let queue: DispatchQueue
     private let writer: Writer

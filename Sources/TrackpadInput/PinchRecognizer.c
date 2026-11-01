@@ -119,21 +119,17 @@ static LRPinchEvent process(LRPinchRecognizer *r, const LRContact *c, int count,
         (r->qualified && ratio > r->bestRatio + .14f)) return reject(r);
     // Include the first break-touch frame: a quick pinch can cross the
     // contraction threshold in the final contact sample before lift.
-    if (!r->releasing) {
-        r->bestRatio = fminf(r->bestRatio, ratio);
-        r->qualified = ratio <= .88f && largestRatio <= 1.10f && shrinkingPairs >= 2 && inwardFingers >= 2 &&
-            contraction >= .025f;
-        memcpy(r->latest, current, sizeof(current));
-    }
+    r->bestRatio = fminf(r->bestRatio, ratio);
+    r->qualified = ratio <= .88f && largestRatio <= 1.10f && shrinkingPairs >= 2 && inwardFingers >= 2 &&
+        contraction >= .025f;
     if (r->previousMask & ~mask) {
         if (!r->qualified || ratio > .92f || time - r->began < .06) return reject(r);
-        if (!r->releasing) { r->releasing = true; r->releasedAt = time; }
+        r->releasing = true; r->releasedAt = time;
     }
     // Preserve the final geometry at confirmation; later lift frames only
     // update contact ownership in the releasing branch above.
     memcpy(r->latest, current, sizeof(current));
     r->previousMask = mask;
-    if (r->releasing && time - r->releasedAt > .22) return reject(r);
     if (!active) {
         if (!r->qualified) return reject(r);
         r->lastPinch = time;

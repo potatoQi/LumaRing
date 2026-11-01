@@ -8,14 +8,14 @@ final class UpdateTests: XCTestCase {
     }
     func testConfiguredGitHubFeedRequiresValidPublicKeyAndHTTPS() {
         let url = "https://github.com/potatoQi/LumaRing/releases/latest/download/appcast.xml"
-        XCTAssertNotNil(UpdateConfiguration(info: configuration(url)))
-        XCTAssertNil(UpdateConfiguration(info: configuration(url, key: "not a public key")))
-        XCTAssertNil(UpdateConfiguration(info: configuration(url, key: Data(repeating: 7, count: 31).base64EncodedString())))
+        XCTAssertTrue(UpdateConfiguration.isValid(info: configuration(url)))
+        XCTAssertFalse(UpdateConfiguration.isValid(info: configuration(url, key: "not a public key")))
+        XCTAssertFalse(UpdateConfiguration.isValid(info: configuration(url, key: Data(repeating: 7, count: 31).base64EncodedString())))
         for rejected in [url.replacingOccurrences(of: "https:", with: "http:"),
                          url.replacingOccurrences(of: "github.com", with: "github.com.example.org"),
                          url.replacingOccurrences(of: "https://", with: "https://user:password@"),
                          url + "?token=example", url + "#fragment", "https://github.com/potatoQi/LumaRing"] {
-            XCTAssertNil(UpdateConfiguration(info: configuration(rejected)), rejected)
+            XCTAssertFalse(UpdateConfiguration.isValid(info: configuration(rejected)), rejected)
         }
     }
     func testVersionComparisonUsesNumericOwnerSelectedVersions() {

@@ -2,6 +2,7 @@ import AppKit
 import LumaRingCore
 
 @MainActor final class RingView: NSView {
+    private static let centerRadius = 52.0
     var apps: [AppRecord] = []
     var windows: [WindowRecord] = []
     var appPage = 0
@@ -72,9 +73,12 @@ import LumaRingCore
     }
     private let diskMaterial = RingMaterial()
     private let diskArtwork = RingArtwork()
-    private let arcArtwork = RingArtwork()
+    private let highlightArtwork = RingArtwork()
     private let dragArtwork = RingArtwork()
     private let arcGroup = NSView()
+    private let appGroup = NSView()
+    private var appTiles: [pid_t: RingTile] = [:]
+    private var windowTiles: [String: RingTile] = [:]
     private let accessibleItems = RingAccessibility()
 
     override init(frame frameRect: NSRect) {
@@ -82,12 +86,13 @@ import LumaRingCore
         wantsLayer = true
         arcGroup.wantsLayer = true
         addSubview(diskMaterial)
-        diskMaterial.content.addSubview(arcGroup)
-        arcGroup.addSubview(arcArtwork)
         diskMaterial.content.addSubview(diskArtwork)
+        addSubview(highlightArtwork)
+        addSubview(appGroup)
+        addSubview(arcGroup)
         addSubview(dragArtwork)
         diskArtwork.render = { [weak self] in self?.drawDisk() }
-        arcArtwork.render = { [weak self] in self?.drawWindows() }
+        highlightArtwork.render = { [weak self] in self?.drawAppHighlight() }
         dragArtwork.render = { [weak self] in self?.drawDrag() }
         arcGroup.isHidden = true
     }
@@ -96,9 +101,10 @@ import LumaRingCore
     override func layout() {
         super.layout()
         diskMaterial.frame = bounds; diskArtwork.frame = bounds
+        highlightArtwork.frame = bounds
         dragArtwork.frame = bounds
-        arcGroup.frame = bounds; arcArtwork.frame = bounds
-        diskMaterial.setShape(surfacePath)
+        arcGroup.frame = bounds; appGroup.frame = bounds
+        diskMaterial.setShape(diskPath)
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -111,15 +117,18 @@ import LumaRingCore
         let index = visibleApps.firstIndex { $0.pid == selectedApp } ?? 0
         return RingGeometry.angle(index: index, count: visibleApps.count)
     }
-    var surfacePath: CGPath {
-        if showsLauncher {
-            return CGPath(ellipseIn: CGRect(x: 42, y: 42, width: 396, height: 396), transform: nil)
-        }
-        return RingGeometry.surfacePath(windowCount: showsWindowArc ? visibleWindows.count : 0, anchor: arcAnchor)
+    private var diskPath: CGPath {
+        showsLauncher
+            ? CGPath(ellipseIn: CGRect(x: 42, y: 42, width: 396, height: 396), transform: nil)
+            : RingGeometry.diskPath
     }
     var occupiedScreenFrame: CGRect {
         guard let window else { return .zero }
-        return window.convertToScreen(convert(surfacePath.boundingBoxOfPath, to: nil))
+        var occupied = diskPath.boundingBoxOfPath
+        if showsWindowArc {
+            occupied = occupied.union(RingGeometry.arcPath(count: visibleWindows.count, anchor: arcAnchor).boundingBoxOfPath)
+        }
+        return window.convertToScreen(convert(occupied, to: nil))
     }
     func windowScreenFrame(_ id: String) -> CGRect? {
         guard let window, let index = visibleWindows.firstIndex(where: { $0.id == id }) else { return nil }
@@ -131,7 +140,6 @@ import LumaRingCore
         min(RingGeometry.windowPageSizeRange.upperBound, max(RingGeometry.windowPageSizeRange.lowerBound, options.windowPageSize))
     }
     var appIconSize: Double { min(34, 2 * RingGeometry.appRadius * sin(.pi / Double(max(visibleApps.count, 2))) * 0.76) }
-    private var arcPath: CGPath { RingGeometry.arcPath(count: visibleWindows.count, anchor: arcAnchor) }
     private var appPages: Int { RingGeometry.pageCount(total: apps.count, size: appPageSize) }
     private var windowPages: Int { RingGeometry.pageCount(total: windows.count, size: windowPageSize) }
     private func windowPoint(_ index: Int) -> CGPoint {
@@ -188,6 +196,9 @@ import LumaRingCore
     var currentWindow: WindowRecord? { windows.first { $0.id == hoveredWindow } }
 
     func reset(apps: [AppRecord], options: Options) {
+        RingMotion.reset(self)
+        appTiles.values.forEach { $0.removeFromSuperview() }; appTiles.removeAll()
+        windowTiles.values.forEach { $0.removeFromSuperview() }; windowTiles.removeAll()
         selectingWithShortcut = false
         invocationClickDeadline = 0
         endKeyboardNavigation()
@@ -284,15 +295,16 @@ import LumaRingCore
 
     func refresh() {
         arcGroup.isHidden = !showsWindowArc
-        arcGroup.frame = bounds
-        diskMaterial.setShape(surfacePath)
+        arcGroup.frame = bounds; appGroup.frame = bounds
+        diskMaterial.setShape(diskPath)
         refreshArtwork()
         rebuildAccessibility()
     }
 
     func refreshArtwork() {
         diskArtwork.needsDisplay = true
-        arcArtwork.needsDisplay = true
+        highlightArtwork.needsDisplay = true
+        updateTiles()
         dragArtwork.needsDisplay = true
     }
 
@@ -735,35 +747,31 @@ import LumaRingCore
 
     var appHighlightPath: CGPath? {
         guard !isDraggingApp, let pid = highlightedApp, let index = visibleApps.firstIndex(where: { $0.pid == pid }) else { return nil }
+        let inner = Self.centerRadius + 0.5, outer = RingGeometry.appOuter - 0.75
         if selectingWithShortcut, showsWindowArc, pid == selectedApp,
            RingGeometry.arcHalfAngle(count: visibleWindows.count) > .pi / Double(visibleApps.count) {
             return RingGeometry.arcPath(count: visibleWindows.count, anchor: arcAnchor,
-                inner: RingGeometry.appInner, outer: RingGeometry.appOuter)
+                inner: inner, outer: outer)
         }
-        return RingGeometry.appSectorPath(index: index, count: visibleApps.count)
+        return RingGeometry.sectorPath(index: index, count: visibleApps.count, inner: inner, outer: outer)
     }
 
     private func drawDisk() {
-        if showsLauncher, launcherInnerArtwork != nil { drawLauncher(); return }
+        if showsLauncher { drawLauncher(); return }
+        drawCenter()
+    }
+
+    private func drawAppHighlight() {
+        guard !showsLauncher else { return }
         if let path = appHighlightPath, let context = NSGraphicsContext.current?.cgContext {
             NSGraphicsContext.saveGraphicsState()
+            // Keep tint outside glass refraction, between the center inset and rim.
+            // Floating icons retain their independent lift animation.
             context.addPath(path)
-            NSColor.labelColor.withAlphaComponent(dark ? 0.16 : 0.07).setFill()
+            NSColor.controlAccentColor.withAlphaComponent(dark ? 0.09 : 0.045).setFill()
             context.fillPath()
             NSGraphicsContext.restoreGraphicsState()
         }
-        var badges: [(String, NSRect)] = []
-        for (index, app) in visibleApps.enumerated() {
-            let p = RingGeometry.point(angle: RingGeometry.angle(index: index, count: visibleApps.count), radius: RingGeometry.appRadius)
-            let size = appIconSize
-            let iconRect = NSRect(x: p.x - size / 2, y: p.y - size / 2, width: size, height: size)
-            app.icon.draw(in: iconRect, from: .zero, operation: .sourceOver, fraction: draggedApp?.pid == app.pid ? 0.25 : 1)
-            if let badge = itemCounts[app.pid]?.badge { badges.append((badge, iconRect)) }
-        }
-        // Dense app pages must not let a later icon paint over an earlier badge.
-        for (text, rect) in badges { drawBadge(text, on: rect) }
-        if showsLauncher { drawLauncher(); return }
-        drawCenter()
     }
 
     // Drag feedback must remain visible beyond the material's clipped contour.
@@ -799,43 +807,95 @@ import LumaRingCore
         (text as NSString).draw(at: NSPoint(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2), withAttributes: attributes)
     }
 
-    private func drawWindows() {
-        guard showsWindowArc else { return }
-        for (index, win) in visibleWindows.enumerated() {
-            let selected = win.id == hoveredWindow
-            let p = windowPoint(index)
-            if let color = win.customColor {
-                NSGraphicsContext.saveGraphicsState()
-                color.color.withAlphaComponent(dark ? 0.30 : 0.18).setFill()
-                if let context = NSGraphicsContext.current?.cgContext {
-                    context.addPath(RingGeometry.windowSectorPath(index: index, count: visibleWindows.count, anchor: arcAnchor))
-                    context.fillPath()
-                }
-                NSGraphicsContext.restoreGraphicsState()
-            }
-            if selected {
-                let highlight = NSBezierPath(roundedRect: NSRect(x: p.x - 35, y: p.y - 29, width: 70, height: 58), xRadius: 13, yRadius: 13)
-                NSGraphicsContext.saveGraphicsState()
-                NSGraphicsContext.current?.cgContext.addPath(arcPath)
-                NSGraphicsContext.current?.cgContext.clip()
-                NSColor.labelColor.withAlphaComponent(dark ? 0.13 : 0.07).setFill(); highlight.fill()
-                NSGraphicsContext.restoreGraphicsState()
-            }
-            let symbol = win.tab != nil ? "globe" : win.minimized ? "minus.rectangle" : (win.fullscreen ? "arrow.up.left.and.arrow.down.right" : "macwindow")
-            drawSymbol(symbol, rect: NSRect(x: p.x - 9, y: p.y + 7, width: 18, height: 16), color: selected ? accent : muted)
-            drawText(win.displayTitle, rect: NSRect(x: p.x - 36, y: p.y - 24, width: 72, height: 28), font: .systemFont(ofSize: 10, weight: selected ? .medium : .regular), color: ink, lines: 2)
-            let close = closeButtonRect(at: index)
-            let pending = closingWindowIDs.contains(win.id)
-            let highlighted = !pending && hoveredClose == win.id
-            let background = NSBezierPath(ovalIn: close)
-            (highlighted ? NSColor.systemRed : NSColor.labelColor.withAlphaComponent(dark ? 0.16 : 0.07)).setFill()
-            background.fill()
-            drawSymbol(pending ? "ellipsis" : "xmark", rect: close.insetBy(dx: 5, dy: 5), color: highlighted ? .white : muted)
+    private func drawWindow(_ win: WindowRecord, index: Int) {
+        let selected = win.id == hoveredWindow || win.id == hoveredClose
+        let p = windowPoint(index)
+        let shape = RingGeometry.windowPetalPath(index: index, count: visibleWindows.count, anchor: arcAnchor)
+        guard let context = NSGraphicsContext.current?.cgContext else { return }
+        if let color = win.customColor {
+            color.color.withAlphaComponent(dark ? 0.27 : 0.14).setFill()
+            context.addPath(shape); context.fillPath()
+        }
+        if selected {
+            accent.withAlphaComponent(dark ? 0.16 : 0.08).setFill()
+            context.addPath(shape); context.fillPath()
+            NSColor.white.withAlphaComponent(dark ? 0.28 : 0.75).setStroke()
+            context.setLineWidth(0.75); context.addPath(shape); context.strokePath()
+        }
+        let symbol = win.tab != nil ? "globe" : win.minimized ? "minus.rectangle" : (win.fullscreen ? "arrow.up.left.and.arrow.down.right" : "macwindow")
+        drawSymbol(symbol, rect: NSRect(x: p.x - 8, y: p.y + 9, width: 16, height: 14), color: selected ? accent : muted)
+        drawText(win.displayTitle, rect: NSRect(x: p.x - 32, y: p.y - 25, width: 64, height: 29),
+            font: .systemFont(ofSize: 10, weight: .medium), color: ink)
+        let close = closeButtonRect(at: index)
+        let pending = closingWindowIDs.contains(win.id)
+        let highlighted = !pending && hoveredClose == win.id
+        (highlighted ? NSColor.systemRed : NSColor.labelColor.withAlphaComponent(dark ? 0.12 : 0.05)).setFill()
+        NSBezierPath(ovalIn: close).fill()
+        drawSymbol(pending ? "ellipsis" : "xmark", rect: close.insetBy(dx: 5, dy: 5), color: highlighted ? .white : muted)
+    }
+
+    private func drawApp(_ app: AppRecord, index: Int) {
+        let p = RingGeometry.point(angle: RingGeometry.angle(index: index, count: visibleApps.count), radius: RingGeometry.appRadius)
+        let size = appIconSize
+        let iconRect = NSRect(x: p.x - size / 2, y: p.y - size / 2, width: size, height: size)
+        if highlightedApp == app.pid, !isDraggingApp {
+            let plate = NSBezierPath(roundedRect: iconRect.insetBy(dx: -4, dy: -4), xRadius: 10, yRadius: 10)
+            NSGraphicsContext.saveGraphicsState()
+            let shadow = NSShadow(); shadow.shadowColor = NSColor.black.withAlphaComponent(dark ? 0.28 : 0.16)
+            shadow.shadowBlurRadius = 5; shadow.shadowOffset = NSSize(width: 0, height: -2); shadow.set()
+            NSColor.white.withAlphaComponent(dark ? 0.15 : 0.55).setFill(); plate.fill()
+            NSGraphicsContext.restoreGraphicsState()
+            NSColor.white.withAlphaComponent(dark ? 0.22 : 0.8).setStroke(); plate.lineWidth = 0.7; plate.stroke()
+        }
+        app.icon.draw(in: iconRect, from: .zero, operation: .sourceOver, fraction: draggedApp?.pid == app.pid ? 0.25 : 1)
+        if let badge = itemCounts[app.pid]?.badge { drawBadge(badge, on: iconRect) }
+    }
+
+    private func updateTiles() {
+        appGroup.isHidden = showsLauncher
+        let apps = showsLauncher ? [] : visibleApps
+        let appIDs = Set(apps.map(\.pid))
+        for id in appTiles.keys.filter({ !appIDs.contains($0) }) { appTiles.removeValue(forKey: id)?.removeFromSuperview() }
+        for (index, app) in apps.enumerated() {
+            let fresh = appTiles[app.pid] == nil
+            let tile = appTiles[app.pid] ?? RingTile(glass: false)
+            if fresh { appTiles[app.pid] = tile; appGroup.addSubview(tile) }
+            let p = RingGeometry.point(angle: RingGeometry.angle(index: index, count: apps.count), radius: RingGeometry.appRadius)
+            let side = appIconSize + 20
+            tile.place(in: CGRect(x: p.x - side / 2, y: p.y - side / 2, width: side, height: side))
+            tile.artwork.render = { [weak self] in self?.drawApp(app, index: index) }
+            tile.update(highlighted: app.pid == highlightedApp && !isDraggingApp, animated: window?.isVisible == true)
+            if fresh, window?.isVisible == true { tile.reveal(index: index, count: apps.count, secondary: false) }
+        }
+        let windows = visibleWindows
+        let windowIDs = Set(windows.map(\.id))
+        for id in windowTiles.keys.filter({ !windowIDs.contains($0) }) { windowTiles.removeValue(forKey: id)?.removeFromSuperview() }
+        for (index, win) in windows.enumerated() {
+            let fresh = windowTiles[win.id] == nil
+            let tile = windowTiles[win.id] ?? RingTile(glass: true)
+            if fresh { windowTiles[win.id] = tile; arcGroup.addSubview(tile) }
+            let shape = RingGeometry.windowPetalPath(index: index, count: windows.count, anchor: arcAnchor)
+            tile.place(in: shape.boundingBoxOfPath.integral, shape: shape)
+            tile.artwork.render = { [weak self] in self?.drawWindow(win, index: index) }
+            tile.update(highlighted: win.id == hoveredWindow || win.id == hoveredClose, animated: window?.isVisible == true)
+            if fresh, window?.isVisible == true { tile.reveal(index: index, count: windows.count, secondary: true) }
+        }
+    }
+
+    func animateOpening() {
+        layoutSubtreeIfNeeded()
+        RingMotion.open(self)
+        for (index, app) in visibleApps.enumerated() {
+            appTiles[app.pid]?.reveal(index: index, count: visibleApps.count, secondary: false)
         }
     }
 
     private func drawCenter() {
         let c = RingGeometry.center
+        let radius = Self.centerRadius
+        let inset = NSBezierPath(ovalIn: CGRect(x: c.x - radius, y: c.y - radius, width: radius * 2, height: radius * 2))
+        NSColor.labelColor.withAlphaComponent(dark ? 0.055 : 0.025).setFill(); inset.fill()
+        NSColor.white.withAlphaComponent(dark ? 0.04 : 0.24).setStroke(); inset.lineWidth = 0.6; inset.stroke()
         if let app = draggedApp {
             RingCenterLabel.draw(title: app.name,
                 detail: dragWillQuit ? L10n.text("松开退出应用", "Release to quit") : L10n.text("拖出轮盘退出", "Drag out to quit"),
@@ -857,10 +917,10 @@ import LumaRingCore
         }
     }
 
-    private func drawText(_ text: String, rect: NSRect, font: NSFont, color: NSColor, lines: Int = 1) {
+    private func drawText(_ text: String, rect: NSRect, font: NSFont, color: NSColor) {
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = .center
-        paragraph.lineBreakMode = lines > 1 ? .byWordWrapping : .byTruncatingTail
+        paragraph.lineBreakMode = .byWordWrapping
         paragraph.maximumLineHeight = font.pointSize + 3
         (text as NSString).draw(with: rect, options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine], attributes: [.font: font, .foregroundColor: color, .paragraphStyle: paragraph])
     }

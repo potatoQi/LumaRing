@@ -2,18 +2,15 @@ import AppKit
 import Combine
 import Sparkle
 
-struct UpdateConfiguration {
-    let feedURL: URL
-    let publicKey: Data
-
-    init?(info: [String: Any]) {
+enum UpdateConfiguration {
+    static func isValid(info: [String: Any]) -> Bool {
         guard let text = info["SUFeedURL"] as? String, let url = URL(string: text),
               url.scheme == "https", url.host == "github.com", url.user == nil, url.password == nil,
               url.query == nil, url.fragment == nil,
               url.path.hasSuffix("/releases/latest/download/appcast.xml"),
               let key = info["SUPublicEDKey"] as? String,
-              let data = Data(base64Encoded: key), data.count == 32 else { return nil }
-        feedURL = url; publicKey = data
+              let data = Data(base64Encoded: key), data.count == 32 else { return false }
+        return true
     }
 }
 
@@ -32,7 +29,7 @@ struct UpdateConfiguration {
 
     func start() {
         guard controller == nil else { return }
-        guard UpdateConfiguration(info: Bundle.main.infoDictionary ?? [:]) != nil else {
+        guard UpdateConfiguration.isValid(info: Bundle.main.infoDictionary ?? [:]) else {
             AppLog.shared.record("configuration_invalid", category: .updates, level: .error)
             configurationMissing = true
             return

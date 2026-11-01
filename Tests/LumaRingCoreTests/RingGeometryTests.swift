@@ -3,6 +3,28 @@ import CoreGraphics
 @testable import LumaRingCore
 
 final class RingGeometryTests: XCTestCase {
+    func testSecondaryPetalsStayInsideExistingHitSectorsAcrossWraparound() {
+        for count in [2, 4, 8] {
+            for anchor in [-Double.pi, -0.7, Double.pi / 2, Double.pi] {
+                for index in 0..<count {
+                    let path = RingGeometry.windowPetalPath(index: index, count: count, anchor: anchor)
+                    let angle = RingGeometry.arcAngle(index: index, count: count, anchor: anchor)
+                    XCTAssertTrue(path.contains(RingGeometry.point(angle: angle, radius: RingGeometry.windowRadius)))
+                    XCTAssertFalse(path.contains(RingGeometry.point(angle: angle, radius: RingGeometry.windowInner)))
+                    XCTAssertFalse(path.contains(RingGeometry.point(angle: angle, radius: RingGeometry.windowOuter)))
+                    for offset in stride(from: -0.36, through: 0.36, by: 0.02) {
+                        for radius in stride(from: 118.0, through: 198, by: 4) {
+                            let point = RingGeometry.point(angle: angle + offset, radius: radius)
+                            if path.contains(point) {
+                                XCTAssertEqual(RingGeometry.arcIndex(at: point, count: count, anchor: anchor), index)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     func testExtendedArcUsesVisibleSideEdgesAtEveryRadiusAndOrientation() {
         for app in 0..<8 {
             let anchor = RingGeometry.angle(index: app, count: 8)
@@ -74,17 +96,15 @@ final class RingGeometryTests: XCTestCase {
         XCTAssertTrue(small.contains(PreviewPlacement.frame(anchor: small, avoiding: small, screen: small)))
     }
 
-    func testSectorJoinsDiskAcrossItsEntireWidthWithoutRoundCaps() {
+    func testArcCoversSecondaryHitRegionAcrossItsEntireWidth() {
         for count in RingGeometry.windowPageSizeRange {
             for anchor in [0.0, .pi / 2, .pi, .pi * 1.75] {
                 let half = RingGeometry.arcHalfAngle(count: count)
                 let arc = RingGeometry.arcPath(count: count, anchor: anchor)
-                let surface = RingGeometry.surfacePath(windowCount: count, anchor: anchor)
                 for fraction in stride(from: -0.99, through: 0.99, by: 0.03) {
                     let angle = anchor + half * fraction
                     XCTAssertTrue(arc.contains(RingGeometry.point(angle: angle, radius: 118.1)))
-                    XCTAssertTrue(surface.contains(RingGeometry.point(angle: angle, radius: 117.9)))
-                    XCTAssertTrue(surface.contains(RingGeometry.point(angle: angle, radius: 118.1)))
+                    XCTAssertNotNil(RingGeometry.arcIndex(at: RingGeometry.point(angle: angle, radius: 118.1), count: count, anchor: anchor))
                 }
                 for edge in [-1.0, 1.0] {
                     XCTAssertFalse(arc.contains(RingGeometry.point(angle: anchor + edge * (half + 0.01), radius: 158)))
@@ -156,13 +176,13 @@ final class RingGeometryTests: XCTestCase {
 
     func testPaginationNeverLosesOrDuplicatesItems() {
         for total in 0...200 {
-            let indices = (0..<RingGeometry.pageCount(total: total)).flatMap {
-                Array(RingGeometry.pageRange(page: $0, total: total))
+            let indices = (0..<RingGeometry.pageCount(total: total, size: 8)).flatMap {
+                Array(RingGeometry.pageRange(page: $0, total: total, size: 8))
             }
             XCTAssertEqual(indices, Array(0..<total))
         }
-        XCTAssertEqual(RingGeometry.pageRange(page: 99, total: 9), 8..<9)
-        XCTAssertEqual(RingGeometry.pageRange(page: -1, total: 9), 0..<8)
+        XCTAssertEqual(RingGeometry.pageRange(page: 99, total: 9, size: 8), 8..<9)
+        XCTAssertEqual(RingGeometry.pageRange(page: -1, total: 9, size: 8), 0..<8)
     }
 
     func testScreenClampingIncludingNegativeMonitorOrigins() {

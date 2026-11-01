@@ -128,10 +128,10 @@ final class TapSelectionTests: XCTestCase {
         }
     }
 
-    func testLegacyMigrationNewSelectionPersistenceAndUnknownValues() throws {
+    func testTapSelectionPersistenceAndUnknownValues() throws {
         for (json, expected) in [
             (#"{}"#, TrackpadTap.disabled),
-            (#"{"fourFingerTap":true}"#, .fourFingers),
+            (#"{"fourFingerTap":true}"#, .disabled),
             (#"{"fourFingerTap":false}"#, .disabled),
             (#"{"fourFingerTap":true,"trackpadTap":3}"#, .threeFingers),
             (#"{"fourFingerTap":true,"trackpadTap":0}"#, .disabled),

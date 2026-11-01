@@ -86,7 +86,6 @@ struct Options: Codable {
     private enum CodingKeys: String, CodingKey {
         case theme, ringMaterial, centerTitleSize, loggingEnabled, actionProfiles, actionRingApps, shortcut, actionShortcut, holdToSelect, trackpadTap, threeFingerPinch, ringSize, previews, previewWidth, includeMinimized, sortByName, excludedBundleIDs, appPageSize, windowPageSize, appContentModes, launcherApps
     }
-    private enum LegacyCodingKeys: String, CodingKey { case fourFingerTap }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         theme = AppTheme(rawValue: (try? c.decode(String.self, forKey: .theme)) ?? "") ?? .system
@@ -101,14 +100,9 @@ struct Options: Codable {
         actionShortcut = try c.decodeIfPresent(Shortcut.self, forKey: .actionShortcut)
         if let value = actionShortcut, !AppAction.validShortcut(value) { actionShortcut = nil }
         holdToSelect = try c.decodeIfPresent(Bool.self, forKey: .holdToSelect) ?? false
-        if c.contains(.trackpadTap) {
-            trackpadTap = TrackpadTap(rawValue: (try? c.decode(Int.self, forKey: .trackpadTap)) ?? 0) ?? .disabled
-        } else {
-            let legacy = try decoder.container(keyedBy: LegacyCodingKeys.self)
-            trackpadTap = (try legacy.decodeIfPresent(Bool.self, forKey: .fourFingerTap) ?? false) ? .fourFingers : .disabled
-        }
+        trackpadTap = TrackpadTap(rawValue: (try? c.decode(Int.self, forKey: .trackpadTap)) ?? 0) ?? .disabled
         threeFingerPinch = try c.decodeIfPresent(Bool.self, forKey: .threeFingerPinch) ?? false
-        ringSize = try c.decodeIfPresent(Double.self, forKey: .ringSize) ?? 520
+        ringSize = min(560, max(400, try c.decodeIfPresent(Double.self, forKey: .ringSize) ?? 520))
         previews = try c.decodeIfPresent(Bool.self, forKey: .previews) ?? true
         previewWidth = min(960, max(400, try c.decodeIfPresent(Double.self, forKey: .previewWidth) ?? 840))
         includeMinimized = try c.decodeIfPresent(Bool.self, forKey: .includeMinimized) ?? true
@@ -158,28 +152,6 @@ final class Preferences: ObservableObject {
            let options = try? JSONDecoder().decode(Options.self, from: data) {
             self.options = options
         } else { options = Options() }
-        if !UserDefaults.standard.bool(forKey: "previewDefault.v6") {
-            if options.previewWidth == 640 { options.previewWidth = 840 }
-            if let data = try? JSONEncoder().encode(options) { UserDefaults.standard.set(data, forKey: "options.v1") }
-            UserDefaults.standard.set(true, forKey: "previewDefault.v6")
-        }
-        // One-time migration; future user choices of the old chord remain valid.
-        if !UserDefaults.standard.bool(forKey: "optionTabDefault.v5") {
-            if options.shortcut.keyCode == UInt32(kVK_Space),
-               options.shortcut.modifiers == UInt32(controlKey | optionKey) {
-                options.shortcut = Shortcut()
-                if let data = try? JSONEncoder().encode(options) { UserDefaults.standard.set(data, forKey: "options.v1") }
-            }
-            UserDefaults.standard.set(true, forKey: "optionTabDefault.v5")
-        }
-        if !UserDefaults.standard.bool(forKey: "simpleDefaults.v4") {
-            options.holdToSelect = false
-            options.ringSize = 520
-            options.appPageSize = 12
-            UserDefaults.standard.set(true, forKey: "simpleDefaults.v4")
-            if let data = try? JSONEncoder().encode(options) { UserDefaults.standard.set(data, forKey: "options.v1") }
-        }
-        options.ringSize = min(560, max(400, options.ringSize))
     }
 
     func refreshPermissions() {

@@ -11,7 +11,6 @@ public struct RingGeometry {
     public static let windowInner: Double = 118
     public static let windowOuter: Double = 198
     public static let windowRadius: Double = 158
-    public static let pageSize = 8
     public static let windowPageSize = 6
     public static let windowPageSizeRange = 2...8
     public static let arcStep: Double = 32 * .pi / 180
@@ -57,42 +56,34 @@ public struct RingGeometry {
         return path
     }
 
-    public static func windowSectorPath(index: Int, count: Int, anchor: Double) -> CGPath {
-        let path = CGMutablePath()
-        guard count > 0, index >= 0, index < count else { return path }
-        let middle = arcAngle(index: index, count: count, anchor: anchor)
-        let start = middle - (index == count - 1 ? 0.65 : 0.5) * arcStep
-        let end = middle + (index == 0 ? 0.65 : 0.5) * arcStep
-        path.move(to: point(angle: start, radius: windowInner))
-        path.addLine(to: point(angle: start, radius: windowOuter))
-        path.addArc(center: center, radius: windowOuter, startAngle: start, endAngle: end, clockwise: false)
-        path.addLine(to: point(angle: end, radius: windowInner))
-        path.addArc(center: center, radius: windowInner, startAngle: end, endAngle: start, clockwise: true)
-        path.closeSubpath()
-        return path
-    }
-
     public static func arcHalfAngle(count: Int) -> Double {
         (Double(max(count, 1) - 1) / 2 + 0.65) * arcStep
     }
 
-    /// One outer contour: no internal edge or antialiased seam between the disk and sector.
-    public static func surfacePath(windowCount: Int, anchor: Double) -> CGPath {
+    /// Visual petals inset slightly from the unchanged secondary hit sectors.
+    public static func windowPetalPath(index: Int, count: Int, anchor: Double) -> CGPath {
         let path = CGMutablePath()
-        guard windowCount > 0 else {
-            path.addEllipse(in: CGRect(x: center.x - appOuter, y: center.y - appOuter,
-                                       width: appOuter * 2, height: appOuter * 2))
-            return path
-        }
-        let start = anchor - arcHalfAngle(count: windowCount)
-        let end = anchor + arcHalfAngle(count: windowCount)
-        path.move(to: point(angle: start, radius: appOuter))
-        path.addLine(to: point(angle: start, radius: windowOuter))
-        path.addArc(center: center, radius: windowOuter, startAngle: start, endAngle: end, clockwise: false)
-        path.addLine(to: point(angle: end, radius: appOuter))
-        path.addArc(center: center, radius: appOuter, startAngle: end, endAngle: start + .pi * 2, clockwise: false)
+        guard count > 0, index >= 0, index < count else { return path }
+        let middle = arcAngle(index: index, count: count, anchor: anchor)
+        let start = middle - (index == count - 1 ? 0.65 : 0.5) * arcStep + 0.008
+        let end = middle + (index == 0 ? 0.65 : 0.5) * arcStep - 0.008
+        let inner = windowInner + 2, outer = windowOuter - 1, corner = 3.0
+        path.move(to: point(angle: start, radius: inner + corner))
+        path.addLine(to: point(angle: start, radius: outer - corner))
+        path.addQuadCurve(to: point(angle: start + corner / outer, radius: outer), control: point(angle: start, radius: outer))
+        path.addArc(center: center, radius: outer, startAngle: start + corner / outer, endAngle: end - corner / outer, clockwise: false)
+        path.addQuadCurve(to: point(angle: end, radius: outer - corner), control: point(angle: end, radius: outer))
+        path.addLine(to: point(angle: end, radius: inner + corner))
+        path.addQuadCurve(to: point(angle: end - corner / inner, radius: inner), control: point(angle: end, radius: inner))
+        path.addArc(center: center, radius: inner, startAngle: end - corner / inner, endAngle: start + corner / inner, clockwise: true)
+        path.addQuadCurve(to: point(angle: start, radius: inner + corner), control: point(angle: start, radius: inner))
         path.closeSubpath()
         return path
+    }
+
+    public static var diskPath: CGPath {
+        CGPath(ellipseIn: CGRect(x: center.x - appOuter, y: center.y - appOuter,
+                                width: appOuter * 2, height: appOuter * 2), transform: nil)
     }
 
     public static func arcIndex(at point: CGPoint, count: Int, anchor: Double,
@@ -129,12 +120,12 @@ public struct RingGeometry {
         return min(count - 1, Int(clockwise / step))
     }
 
-    public static func pageCount(total: Int, size: Int = pageSize) -> Int {
+    public static func pageCount(total: Int, size: Int) -> Int {
         guard size > 0 else { return 1 }
         return max(1, (max(total, 0) + size - 1) / size)
     }
 
-    public static func pageRange(page: Int, total: Int, size: Int = pageSize) -> Range<Int> {
+    public static func pageRange(page: Int, total: Int, size: Int) -> Range<Int> {
         guard total > 0, size > 0 else { return 0..<0 }
         let p = min(max(0, page), pageCount(total: total, size: size) - 1)
         let start = p * size

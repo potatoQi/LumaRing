@@ -1,7 +1,5 @@
-import base64
 import importlib.util
 import json
-import plistlib
 import subprocess
 import sys
 import tempfile

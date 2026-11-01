@@ -22,8 +22,8 @@ import Combine
         rim.fillColor = nil
         layer?.addSublayer(rim)
         layer?.shadowColor = NSColor.black.cgColor
-        layer?.shadowOpacity = 0.24
-        layer?.shadowRadius = 12
+        layer?.shadowOpacity = 0.18
+        layer?.shadowRadius = 14
         layer?.shadowOffset = CGSize(width: 0, height: -4)
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(updateContrast),
             name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil)
@@ -78,7 +78,8 @@ import Combine
         let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
         let contrast = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
         CATransaction.begin(); CATransaction.setDisableActions(true)
-        rim.strokeColor = (dark ? NSColor.white : NSColor.black).withAlphaComponent(contrast ? 0.5 : 0.18).cgColor
+        let edge = contrast ? (dark ? NSColor.white : NSColor.black) : NSColor.white
+        rim.strokeColor = edge.withAlphaComponent(contrast ? 0.5 : (dark ? 0.16 : 0.42)).cgColor
         rim.lineWidth = contrast ? 1.5 : 0.75
         CATransaction.commit()
     }
@@ -94,8 +95,7 @@ import Combine
         mask.frame = clipping.bounds
         mask.path = path.copy(using: &translation)
         if #available(macOS 26.0, *), let glass = effect as? NSGlassEffectView {
-            // Native circular glass for the primary/launcher disks; the joined
-            // secondary contour is clipped once, without overlapping materials.
+            // Use native rounding for disks; secondary petals supply their own contour.
             glass.cornerRadius = path == CGPath(ellipseIn: path.boundingBoxOfPath, transform: nil) ? rect.width / 2 : 0
         }
         content.frame = effect.bounds

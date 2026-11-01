@@ -69,7 +69,7 @@ import LumaRingCore
     override func layout() {
         super.layout()
         material.frame = bounds; artwork.frame = bounds
-        material.setShape(RingGeometry.surfacePath(windowCount: 0, anchor: 0))
+        material.setShape(RingGeometry.diskPath)
     }
     override func updateTrackingAreas() {
         if let tracking { removeTrackingArea(tracking) }

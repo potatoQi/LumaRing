@@ -25,7 +25,7 @@ final class RingStateTests: XCTestCase {
         RingGeometry.point(angle: RingGeometry.arcAngle(index: index, count: count, anchor: anchor), radius: RingGeometry.windowRadius)
     }
 
-    func testNewDefaultsAndLegacySettingsDecode() throws {
+    func testDefaultsAndSavedSettingsDecode() throws {
         let defaults = Options()
         XCTAssertFalse(defaults.holdToSelect)
         XCTAssertEqual(defaults.ringSize, 520)
@@ -34,8 +34,8 @@ final class RingStateTests: XCTestCase {
         XCTAssertTrue(defaults.sortByName)
         XCTAssertEqual(defaults.appPageSize, 12)
         XCTAssertEqual(defaults.windowPageSize, 6)
-        let legacy = Data(#"{"shortcut":{"keyCode":15,"modifiers":6144,"label":"R"},"hoverDelay":0.5,"ringSize":500,"showAppNames":true,"reduceMotion":true,"excludedBundleIDs":["local.hidden"]}"#.utf8)
-        let decoded = try JSONDecoder().decode(Options.self, from: legacy)
+        let saved = Data(#"{"shortcut":{"keyCode":15,"modifiers":6144,"label":"R"},"hoverDelay":0.5,"ringSize":500,"showAppNames":true,"reduceMotion":true,"excludedBundleIDs":["local.hidden"]}"#.utf8)
+        let decoded = try JSONDecoder().decode(Options.self, from: saved)
         XCTAssertEqual(decoded.shortcut.keyCode, 15)
         XCTAssertEqual(decoded.ringSize, 500)
         XCTAssertEqual(decoded.excludedBundleIDs, ["local.hidden"])
@@ -49,6 +49,21 @@ final class RingStateTests: XCTestCase {
         let encoded = String(decoding: try JSONEncoder().encode(decoded), as: UTF8.self)
         XCTAssertFalse(encoded.contains("showAppNames")); XCTAssertFalse(encoded.contains("reduceMotion"))
         XCTAssertFalse(encoded.contains("hoverDelay"))
+    }
+
+    func testSavedSizesAndSelectionArePreservedWithinCurrentBounds() throws {
+        let saved = Data(#"{"shortcut":{"keyCode":49,"modifiers":6144,"label":"Space"},"holdToSelect":true,"ringSize":480,"appPageSize":8,"previewWidth":640}"#.utf8)
+        let decoded = try JSONDecoder().decode(Options.self, from: saved)
+        let restored = try JSONDecoder().decode(Options.self, from: JSONEncoder().encode(decoded))
+        XCTAssertEqual(restored.shortcut.display, "⌃⌥Space")
+        XCTAssertTrue(restored.holdToSelect)
+        XCTAssertEqual(restored.ringSize, 480)
+        XCTAssertEqual(restored.appPageSize, 8)
+        XCTAssertEqual(restored.previewWidth, 640)
+        for (size, expected) in [(0, 400.0), (9999, 560.0)] {
+            let options = try JSONDecoder().decode(Options.self, from: Data("{\"ringSize\":\(size)}".utf8))
+            XCTAssertEqual(options.ringSize, expected)
+        }
     }
 
     func testCenterTitleSizePersistsWithoutResettingOtherPreferences() throws {

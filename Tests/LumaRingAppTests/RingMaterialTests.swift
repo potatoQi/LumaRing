@@ -26,7 +26,7 @@ final class RingMaterialTests: XCTestCase {
         let surface = RingMaterial(frame: CGRect(x: 0, y: 0, width: 480, height: 480))
         let artwork = RingArtwork(frame: surface.bounds)
         surface.content.addSubview(artwork)
-        let shape = RingGeometry.surfacePath(windowCount: 3, anchor: 0.7)
+        let shape = RingGeometry.windowPetalPath(index: 1, count: 3, anchor: 0.7)
         surface.setShape(shape)
         let host = NSWindow(contentRect: surface.bounds, styleMask: .borderless, backing: .buffered, defer: false)
         host.contentView = surface
@@ -54,8 +54,8 @@ final class RingMaterialTests: XCTestCase {
         let host = NSWindow(contentRect: surface.bounds, styleMask: .borderless, backing: .buffered, defer: false)
         host.contentView = surface
         defer { host.contentView = nil }
-        let shapes = [RingGeometry.surfacePath(windowCount: 0, anchor: 0),
-                      RingGeometry.surfacePath(windowCount: 4, anchor: 0.7),
+        let shapes = [RingGeometry.diskPath,
+                      RingGeometry.windowPetalPath(index: 0, count: 4, anchor: 0.7),
                       CGPath(ellipseIn: CGRect(x: 42, y: 42, width: 396, height: 396), transform: nil)]
         for shape in shapes + shapes.reversed() {
             surface.setShape(shape)

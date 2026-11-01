@@ -63,18 +63,17 @@ final class WindowStyleEditorTests: XCTestCase {
         editor.saveEditing(); XCTAssertEqual(saved?.0, "Workspace"); XCTAssertEqual(saved?.1, .teal)
         editor.selectColor(nil); XCTAssertTrue(editor.colorButtons.allSatisfy { $0.state == .off })
     }
-    func testColoredSectorsMatchSecondaryHitRegions() {
+    func testColoredPetalsStayInsideSecondaryHitRegions() {
         for count in 2...8 {
             for anchor in [0.0, .pi / 2, .pi, -.pi / 2] {
-                for step in 0..<720 {
-                    let angle = Double(step) * .pi / 360
-                    let point = RingGeometry.point(angle: angle, radius: 158)
-                    guard let hit = RingGeometry.arcIndex(at: point, count: count, anchor: anchor) else { continue }
-                    // Avoid exact shared edges, where either path may contain the same point.
-                    let midpoint = RingGeometry.arcAngle(index: hit, count: count, anchor: anchor)
-                    let offset = abs(atan2(sin(angle - midpoint), cos(angle - midpoint)))
-                    if abs(offset - RingGeometry.arcStep * 0.5) < 0.00001 { continue }
-                    XCTAssertTrue(RingGeometry.windowSectorPath(index: hit, count: count, anchor: anchor).contains(point))
+                for index in 0..<count {
+                    let path = RingGeometry.windowPetalPath(index: index, count: count, anchor: anchor)
+                    for step in 0..<720 {
+                        let point = RingGeometry.point(angle: Double(step) * .pi / 360, radius: 158)
+                        if path.contains(point) {
+                            XCTAssertEqual(RingGeometry.arcIndex(at: point, count: count, anchor: anchor), index)
+                        }
+                    }
                 }
             }
         }

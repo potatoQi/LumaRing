@@ -130,6 +130,28 @@ final class HoldSelectionTests: XCTestCase {
         XCTAssertEqual(activated, ["w0", "w1", "w2", "w3"])
     }
 
+    @MainActor func testHighlightStaysBetweenCenterInsetAndOuterRim() async throws {
+        for count in [2, 4, 6] {
+            let view = secondaryView(count: count)
+            for held in [false, true] {
+                view.selectingWithShortcut = held
+                let path = try XCTUnwrap(view.appHighlightPath)
+                for step in 0..<360 {
+                    let angle = Double(step) * .pi / 180
+                    for radius in [0.0, 40, 45, 51.9, 52, 117.8, 118, 120] {
+                        XCTAssertFalse(path.contains(RingGeometry.point(angle: angle, radius: radius)))
+                    }
+                }
+                for radius in [53.0, 88, 117] {
+                    XCTAssertTrue(path.contains(RingGeometry.point(angle: view.arcAnchor, radius: radius)))
+                }
+                // The visual inset must not change the established selection threshold.
+                view.updateHover(at: RingGeometry.point(angle: view.arcAnchor, radius: 45))
+                XCTAssertEqual(view.highlightedApp, 106)
+            }
+        }
+    }
+
     @MainActor func testCrossingEitherSideImmediatelyHandsOffToAnotherApp() async {
         for side in [-1.0, 1.0] {
             for radius in [88.0, 158, 2000] {
@@ -238,41 +260,6 @@ final class HoldSelectionTests: XCTestCase {
         view.updateHover(at: RingGeometry.point(angle: angle, radius: 2000))
         XCTAssertEqual(view.currentWindow?.id, "w0")
         XCTAssertEqual(view.appHighlightPath?.contains(RingGeometry.point(angle: angle, radius: 88)), true)
-        guard let directory = ProcessInfo.processInfo.environment["LUMARING_SNAPSHOT_DIR"] else { return }
-        for index in view.apps.indices {
-            view.apps[index] = AppRecord(pid: view.apps[index].pid, bundleID: view.apps[index].bundleID,
-                name: index == 6 ? "Browser" : "App \(index)", icon: NSImage(systemSymbolName: "app.fill", accessibilityDescription: nil)!)
-        }
-        let panel = NSWindow(contentRect: view.frame, styleMask: .borderless, backing: .buffered, defer: false)
-        panel.contentView = view
-        for appearance in [NSAppearance.Name.aqua, .darkAqua] {
-            view.appearance = NSAppearance(named: appearance)
-            view.layoutSubtreeIfNeeded()
-            let bitmap = try XCTUnwrap(view.bitmapImageRepForCachingDisplay(in: view.bounds))
-            let context = try XCTUnwrap(NSGraphicsContext(bitmapImageRep: bitmap))
-            // Glass is composited by the window server; inspect the actual artwork
-            // drawing callbacks against an opaque material for deterministic snapshots.
-            NSGraphicsContext.saveGraphicsState()
-            NSGraphicsContext.current = context
-            context.cgContext.concatenate(context.cgContext.ctm.inverted())
-            context.cgContext.scaleBy(x: CGFloat(bitmap.pixelsWide) / view.bounds.width,
-                                      y: CGFloat(bitmap.pixelsHigh) / view.bounds.height)
-            view.effectiveAppearance.performAsCurrentDrawingAppearance {
-                NSColor.windowBackgroundColor.setFill()
-                context.cgContext.addPath(view.surfacePath)
-                context.cgContext.fillPath()
-                @MainActor func drawArtwork(_ node: NSView) {
-                    guard !node.isHidden else { return }
-                    (node as? RingArtwork)?.render?()
-                    node.subviews.forEach(drawArtwork)
-                }
-                drawArtwork(view)
-            }
-            NSGraphicsContext.restoreGraphicsState()
-            try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
-            try XCTUnwrap(bitmap.representation(using: .png, properties: [:])).write(to:
-                URL(fileURLWithPath: directory).appendingPathComponent("secondary-hold-\(appearance.rawValue).png"))
-        }
     }
 
     @MainActor func testSelectionUsesCurrentPageAndHandlesEmptyLists() async {
@@ -335,7 +322,10 @@ final class HoldSelectionTests: XCTestCase {
         XCTAssertEqual(activated, [105])
         XCTAssertFalse(ring.isVisible)
         XCTAssertFalse(ring.view.selectingWithShortcut)
+        let selection = ring.view.highlightedApp
         ring.updateHeldSelection(at: .zero)
+        XCTAssertEqual(ring.view.highlightedApp, selection)
+        try await Task.sleep(nanoseconds: 180_000_000)
         XCTAssertNil(ring.view.highlightedApp)
     }
 

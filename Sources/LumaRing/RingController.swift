@@ -41,7 +41,7 @@ final class RingPanel: NSPanel {
     private var gate = RequestGate()
     var onSettings: (() -> Void)?
     var onError: ((String) -> Void)?
-    var isVisible: Bool { panel?.isVisible == true || actionPanel?.isVisible == true }
+    var isVisible: Bool { !closing && (panel?.isVisible == true || actionPanel?.isVisible == true) }
     private var closing = false
     private var renameTicket: UUID?
     private(set) var styleEditor: WindowStyleEditor?
@@ -286,10 +286,9 @@ final class RingPanel: NSPanel {
         if Preferences.shared.options.holdToSelect {
             if !isVisible { show() }
             openedByShortcut = !actionMode
-        } else { toggle() }
+        } else if isVisible { dismiss() }
+        else { show() }
     }
-
-    func toggle() { if isVisible { dismiss() } else { show() } }
 
     func pressActionShortcut() {
         if isVisible {
@@ -303,6 +302,7 @@ final class RingPanel: NSPanel {
 
     func show(fromTrackpad: Bool = false, actionMode requestedMode: Bool? = nil) {
         if isVisible { return }
+        if closing { finishDismissal() }
         actionExecutor.cancel()
         originApp = NSWorkspace.shared.frontmostApplication
         actionMode = requestedMode ?? Preferences.shared.options.usesActionRing(for: originApp?.bundleIdentifier)
@@ -340,6 +340,7 @@ final class RingPanel: NSPanel {
         // The Option already held by the invocation shortcut must be released first.
         view.optionPressed = NSEvent.modifierFlags.contains(.option)
         panel.alphaValue = 1
+        panel.ignoresMouseEvents = false
         // Capture the original AX focus before the app ring takes key focus.
         // The surface is already visible; slow AX providers do not block rendering.
         if actionMode { presentActions(frame: frame) }
@@ -382,13 +383,8 @@ final class RingPanel: NSPanel {
         }
         let elapsed = (ProcessInfo.processInfo.systemUptime - start) * 1000
         AppLog.shared.record("presentation_scheduled", category: .ring, level: .debug, fields: ["milliseconds": String(elapsed)])
-        if !actionMode, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
-            panel.alphaValue = 0
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.09
-                panel.animator().alphaValue = 1
-            }
-        }
+        if actionMode { RingMotion.open(actionView) }
+        else { view.animateOpening() }
     }
 
     func dismiss() {
@@ -402,11 +398,13 @@ final class RingPanel: NSPanel {
         renameTicket = nil
         styleEditor?.dismiss(); styleEditor = nil
         view.isEditingName = false; view.afterContextMenu = nil
-        // Remove the visible surface before clearing snapshots or dispatching IPC.
-        panel?.orderOut(nil); actionPanel?.orderOut(nil)
-        setActionLauncherSurface(false)
-        actionView.actions = []; actionView.ready = false; actionView.reset()
-        actionView.icon = nil; actionView.appName = ""; actionView.message = ""
+        // Input and async work stop immediately. Only the cached visual surface
+        // survives for the short closing animation; activation never waits for it.
+        for panel in [panel, actionPanel].compactMap({ $0 }) where panel.isVisible {
+            panel.ignoresMouseEvents = true
+            panel.resignKey()
+            if let content = panel.contentView { RingMotion.close(content) }
+        }
         originApp = nil
         gate.invalidate()
         openedByShortcut = false
@@ -418,7 +416,19 @@ final class RingPanel: NSPanel {
         previews.cancelAndClear()
         if let mouseMonitor { NSEvent.removeMonitor(mouseMonitor) }; mouseMonitor = nil
         if let localMouseMonitor { NSEvent.removeMonitor(localMouseMonitor) }; localMouseMonitor = nil
-        // Release AX elements, image buffers and application snapshots when hidden.
+        let session = presentationID
+        DispatchQueue.main.asyncAfter(deadline: .now() + RingMotion.closingDuration) {
+            guard self.closing, self.presentationID == session else { return }
+            self.finishDismissal()
+        }
+    }
+
+    private func finishDismissal() {
+        panel?.orderOut(nil); actionPanel?.orderOut(nil)
+        setActionLauncherSurface(false)
+        actionView.actions = []; actionView.ready = false; actionView.reset()
+        actionView.icon = nil; actionView.appName = ""; actionView.message = ""
+        RingMotion.reset(actionView)
         view.reset(apps: [], options: Preferences.shared.options)
         closing = false
     }
@@ -471,6 +481,8 @@ final class RingPanel: NSPanel {
         actionPanel?.setFrame(frame, display: false)
         actionView.frame = NSRect(origin: .zero, size: frame.size)
         actionView.bounds = NSRect(x: 0, y: 0, width: RingGeometry.canvas, height: RingGeometry.canvas)
+        actionPanel?.ignoresMouseEvents = false
+        RingMotion.reset(actionView)
         actionPanel?.orderFrontRegardless()
         actionView.reset()
     }
